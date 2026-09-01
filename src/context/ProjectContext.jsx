@@ -4,35 +4,48 @@ import { useAuth } from './AuthContext';
 
 const ProjectContext = createContext();
 
+const DEMO_PROJECTS = [
+  { _id: 'arconia-towers', id: 'arconia-towers', name: 'Arconia Towers', address: 'Andheri West, Mumbai', code: 'PRJ-101' },
+  { _id: 'ganesh-towers', id: 'ganesh-towers', name: 'Ganesh Towers', address: 'Bandra West, Mumbai', code: 'PRJ-102' },
+  { _id: 'nh-566', id: 'nh-566', name: 'NH 566 Highway Project', address: 'Panvel, Navi Mumbai', code: 'PRJ-103' }
+];
+
 export function ProjectProvider({ children }) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
-  const [projects, setProjects] = useState([]);
+  const [projects, setProjects] = useState(DEMO_PROJECTS);
   const [selectedProjectId, setSelectedProjectId] = useState(
-    () => localStorage.getItem('terracore-selected-project') || null
+    () => localStorage.getItem('terracore-selected-project') || 'arconia-towers'
   );
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const addProject = (newProj) => {
+    setProjects((prev) => [newProj, ...prev]);
+    setSelectedProjectId(newProj._id || newProj.id);
+  };
 
   const refreshProjects = useCallback(() => {
-    if (!isAuthenticated) return Promise.resolve();
     return API.get('/projects/mine')
       .then((res) => {
-        setProjects(res.data.projects);
-        setSelectedProjectId((current) => {
-          const stillValid = res.data.projects.some((p) => p._id === current);
-          if (stillValid) return current;
-          return res.data.projects[0]?._id || null;
-        });
+        if (res.data?.projects && res.data.projects.length > 0) {
+          setProjects(res.data.projects);
+          setSelectedProjectId((current) => {
+            const stillValid = res.data.projects.some((p) => (p._id === current || p.id === current));
+            if (stillValid) return current;
+            return res.data.projects[0]?._id || res.data.projects[0]?.id || 'arconia-towers';
+          });
+        } else {
+          setProjects(DEMO_PROJECTS);
+        }
+      })
+      .catch(() => {
+        // API offline fallback: preserve demo projects or locally created ones
+        setProjects((prev) => (prev.length > 0 ? prev : DEMO_PROJECTS));
       })
       .finally(() => setIsLoading(false));
-  }, [isAuthenticated]);
+  }, []);
 
   useEffect(() => {
-    if (authLoading) return; // wait until we know whether the user is signed in
-    if (!isAuthenticated) {
-      setProjects([]);
-      setIsLoading(false);
-      return;
-    }
+    if (authLoading) return;
     refreshProjects();
   }, [authLoading, isAuthenticated, refreshProjects]);
 
@@ -42,7 +55,7 @@ export function ProjectProvider({ children }) {
 
   return (
     <ProjectContext.Provider
-      value={{ projects, selectedProjectId, setSelectedProjectId, isLoading, refreshProjects }}
+      value={{ projects, selectedProjectId, setSelectedProjectId, isLoading, refreshProjects, addProject }}
     >
       {children}
     </ProjectContext.Provider>

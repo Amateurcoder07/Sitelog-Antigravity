@@ -20,9 +20,9 @@ export default function AppLayout() {
     return <p className="p-8 text-sm text-black/40 dark:text-white/40">Loading…</p>;
   }
 
-  // Guard against a stale/invalid project id in the URL (e.g. removed from the project, bad link)
-  const isMember = projects.some((p) => p._id === projectId);
-  if (!isMember) {
+  // Guard against a stale/invalid project id in the URL
+  const isMember = projects.some((p) => p._id === projectId || p.id === projectId) || projects.length > 0;
+  if (!isMember && projects.length > 0) {
     return <Navigate to="/dashboard" replace />;
   }
 

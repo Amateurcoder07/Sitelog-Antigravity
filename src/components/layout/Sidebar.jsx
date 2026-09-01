@@ -1,11 +1,12 @@
 import React from 'react';
 import { NavLink, Link, useParams } from 'react-router-dom';
-import { Users, Layers, ShieldAlert, FileText, Leaf, FolderOpen, ArrowLeft, X, CalculatorIcon } from 'lucide-react';
+import { Users, Layers, ShieldAlert, FileText, Leaf, FolderOpen, ArrowLeft, X, CalculatorIcon, FlaskConical } from 'lucide-react';
 import Logo from '../Logo';
 
 const navItems = [
   { name: 'Labour', path: 'labour', icon: Users },
   { name: 'Materials', path: 'materials', icon: Layers },
+  { name: 'Lab Management', path: 'lab-management', icon: FlaskConical },
   { name: 'Document Inventory', path: 'documents-inventory', icon: FolderOpen },
   { name: 'Estimation & Costings', path: 'estimation&costing', icon: CalculatorIcon },
   { name: 'Safety', path: 'safety', icon: ShieldAlert },

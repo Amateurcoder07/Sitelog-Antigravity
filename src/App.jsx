@@ -17,6 +17,7 @@ import AppLayout from './components/layout/AppLayout';
 import ProjectOverview from './pages/ProjectOverview';
 import Labour from './pages/Labour';
 import Materials from './pages/Materials';
+import LabManagement from './pages/LabManagement';
 import Safety from './pages/Safety';
 import Compliance from './pages/Compliance';
 import CarbonWaste from './pages/CarbonWaste';
@@ -51,6 +52,7 @@ function App() {
                 <Route index element={<ProjectOverview />} />
                 <Route path="labour" element={<Labour />} />
                 <Route path="materials" element={<Materials />} />
+                <Route path="lab-management" element={<LabManagement />} />
                 <Route path="documents-inventory" element={<DocumentInventory />} />
                 <Route path="documents-inventory/:id" element={<FolderDetail />} />
                 <Route path="safety" element={<Safety />} />
