@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Building2, Users, X } from 'lucide-react';
-import { useNavigate, useOutletContext } from 'react-router-dom';
 import { useProject } from '../context/ProjectContext';
 import API from '../api';
 
@@ -100,7 +100,7 @@ function JoinProjectPanel() {
         <Search className="absolute left-3.5 top-3 text-black/40 dark:text-white/40" size={15} />
         <input
           type="text" value={query} onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by project name or ID…"
+          placeholder="Search project by name…"
           className="w-full bg-white dark:bg-black border border-black/15 dark:border-white/15 rounded-lg pl-10 pr-4 py-2.5 text-sm text-black dark:text-white placeholder-black/30 dark:placeholder-white/30 focus:outline-none focus:border-black dark:focus:border-white transition-colors"
         />
       </form>
@@ -133,24 +133,14 @@ function JoinProjectPanel() {
   );
 }
 
-export default function Dashboard() {
-  const { projects, selectedProjectId, isLoading, refreshProjects } = useProject();
-  const { searchQuery = '', openCreateModalSignal } = useOutletContext() || {};
+export default function MainDashboard() {
+  const { projects, selectedProjectId, setSelectedProjectId, refreshProjects } = useProject();
+  const { searchQuery = '' } = useOutletContext() || {};
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const navigate = useNavigate();
-
-  // Opens the modal whenever the navbar's "Add Project" button fires a new signal
-  useEffect(() => {
-    if (openCreateModalSignal) setShowCreateModal(true);
-  }, [openCreateModalSignal]);
 
   const filteredProjects = projects.filter((p) =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
-
-  if (isLoading) {
-    return <p className="text-sm text-black/40 dark:text-white/40">Loading your projects…</p>;
-  }
 
   return (
     <div>
@@ -184,11 +174,12 @@ export default function Dashboard() {
           {filteredProjects.map((p) => (
             <button
               key={p._id}
-              onClick={() => navigate(`/projects/${p._id}`)}
-              className={`text-left bg-white dark:bg-[#0a0a0a] border rounded-xl p-5 transition-colors cursor-pointer ${selectedProjectId === p._id
+              onClick={() => setSelectedProjectId(p._id)}
+              className={`text-left bg-white dark:bg-[#0a0a0a] border rounded-xl p-5 transition-colors cursor-pointer ${
+                selectedProjectId === p._id
                   ? 'border-black dark:border-white'
                   : 'border-black/10 dark:border-white/10 hover:border-black/30 dark:hover:border-white/30'
-                }`}
+              }`}
             >
               <div className="flex items-center justify-between mb-4">
                 <div className="w-9 h-9 rounded-lg bg-black dark:bg-white flex items-center justify-center text-white dark:text-black">
@@ -200,9 +191,6 @@ export default function Dashboard() {
               </div>
               <h3 className="text-black dark:text-white font-semibold text-sm mb-1">{p.name}</h3>
               <p className="text-black/40 dark:text-white/40 text-xs">{p.address || 'No address listed'}</p>
-              <p className="text-black/40 dark:text-white/40 text-xs mt-1">
-                ID: <span className="font-mono font-semibold text-black/60 dark:text-white/60">{p.projectCode}</span>
-              </p>
               <p className="text-black/40 dark:text-white/40 text-xs mt-1.5 flex items-center gap-1.5">
                 <Users size={11} />
                 {p.members?.length || 0} member{p.members?.length === 1 ? '' : 's'} • by {p.createdBy?.name}

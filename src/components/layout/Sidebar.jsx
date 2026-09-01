@@ -1,66 +1,68 @@
 import React from 'react';
-import { NavLink, Link } from 'react-router-dom';
-import { LayoutDashboard, Users, Layers, ShieldAlert, FileText, Leaf, X, Building2 } from 'lucide-react';
+import { NavLink, Link, useParams } from 'react-router-dom';
+import { Users, Layers, ShieldAlert, FileText, Leaf, FolderOpen, ArrowLeft, X, CalculatorIcon } from 'lucide-react';
+import Logo from '../Logo';
 
 const navItems = [
-  { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-  { name: 'Labour', path: '/labour', icon: Users },
-  { name: 'Materials', path: '/materials', icon: Layers },
-  { name: 'Safety', path: '/safety', icon: ShieldAlert },
-  { name: 'Compliance', path: '/compliance', icon: FileText },
-  { name: 'Carbon & Waste', path: '/carbon-waste', icon: Leaf },
+  { name: 'Labour', path: 'labour', icon: Users },
+  { name: 'Materials', path: 'materials', icon: Layers },
+  { name: 'Document Inventory', path: 'documents-inventory', icon: FolderOpen },
+  { name: 'Estimation & Costings', path: 'estimation&costing', icon: CalculatorIcon },
+  { name: 'Safety', path: 'safety', icon: ShieldAlert },
+  { name: 'Compliance', path: 'compliance', icon: FileText },
+  { name: 'Carbon & Waste', path: 'carbon-waste', icon: Leaf },
 ];
 
 export default function Sidebar({ isMobileOpen, onCloseMobile }) {
+  const { projectId } = useParams();
+
   return (
     <>
-      {/* Mobile Backdrop Overlay */}
       {isMobileOpen && (
         <div
           onClick={onCloseMobile}
-          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40 md:hidden"
+          className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm z-40 md:hidden"
         />
       )}
 
-      {/* Sidebar Container */}
       <aside
-        className={`fixed md:static top-0 left-0 bottom-0 z-50 w-60 bg-[#040711] border-r border-slate-800/60 flex flex-col flex-shrink-0 transition-transform duration-300 ease-in-out md:translate-x-0 ${
-          isMobileOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        className={`fixed md:static top-0 left-0 bottom-0 z-50 w-60 bg-white dark:bg-black border-r border-black/10 dark:border-white/10 flex flex-col flex-shrink-0 transition-transform duration-300 ease-in-out md:translate-x-0 ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
       >
-        {/* Brand Header */}
-        <div className="h-16 px-6 flex items-center justify-between border-b border-slate-800/40">
-          <Link to="/" className="flex items-center gap-2.5 group cursor-pointer">
-            <div className="w-7 h-7 bg-[#ea580c] rounded-md flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform">
-              <Building2 size={16} className="text-white" />
-            </div>
-            <span className="text-white font-bold text-lg tracking-tight">SiteLog</span>
-          </Link>
-
-          {/* Mobile Close Button */}
+        <div className="h-16 px-6 flex items-center justify-between border-b border-black/10 dark:border-white/10">
+          <Logo />
           <button
             onClick={onCloseMobile}
-            className="md:hidden text-slate-400 hover:text-white p-1 cursor-pointer"
+            className="md:hidden text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white p-1 cursor-pointer"
             aria-label="Close sidebar"
           >
             <X size={20} />
           </button>
         </div>
 
-        {/* Navigation Links */}
-        <nav className="p-4 space-y-1.5 flex-1 overflow-y-auto">
+        <div className="px-4 pt-4">
+          <Link
+            to="/dashboard"
+            onClick={onCloseMobile}
+            className="flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white transition-colors mb-2"
+          >
+            <ArrowLeft size={14} />
+            Back to Projects
+          </Link>
+        </div>
+
+        <nav className="p-4 pt-1 space-y-1.5 flex-1 overflow-y-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
               <NavLink
                 key={item.name}
-                to={item.path}
+                to={`/projects/${projectId}/${item.path}`}
                 onClick={onCloseMobile}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
-                    isActive
-                      ? 'bg-[#1c1615] text-[#ea580c] border border-[#ea580c]/30 font-semibold'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-[#090e1a]'
+                  `flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${isActive
+                    ? 'bg-black dark:bg-white text-white dark:text-black font-semibold'
+                    : 'text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10'
                   }`
                 }
               >
