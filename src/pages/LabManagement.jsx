@@ -13,6 +13,7 @@ import PdfPreviewShareModal from '../components/lab/PdfPreviewShareModal';
 import ConcreteCubeRegister from '../components/lab/ConcreteCubeRegister';
 import { INITIAL_CUBE_POURS } from '../data/mockCubeRegisterData';
 import {
+  FlaskConical,
   Layers,
   CheckCircle2,
   XCircle,
