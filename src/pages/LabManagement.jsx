@@ -10,8 +10,10 @@ import RecordResultModal from '../components/lab/RecordResultModal';
 import RecalibrateModal from '../components/lab/RecalibrateModal';
 import UploadCertModal from '../components/lab/UploadCertModal';
 import PdfPreviewShareModal from '../components/lab/PdfPreviewShareModal';
+import ConcreteCubeRegister from '../components/lab/ConcreteCubeRegister';
+import { INITIAL_CUBE_POURS } from '../data/mockCubeRegisterData';
 import {
-  FlaskConical,
+  Layers,
   CheckCircle2,
   XCircle,
   Clock,
@@ -38,7 +40,8 @@ import {
 export default function LabManagement() {
   const { showToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState('samples'); // 'samples' | 'ncrs' | 'equipment' | 'certificates'
+  const [activeTab, setActiveTab] = useState('cube-register'); // 'cube-register' | 'samples' | 'ncrs' | 'equipment' | 'certificates'
+  const [cubePours, setCubePours] = useState(INITIAL_CUBE_POURS);
   const [samples, setSamples] = useState([]);
   const [ncrs, setNcrs] = useState([]);
   const [equipment, setEquipment] = useState([]);
@@ -293,6 +296,18 @@ export default function LabManagement() {
       {/* Navigation Sub-Tabs */}
       <div className="flex items-center gap-1 p-1 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-2xl overflow-x-auto">
         <button
+          onClick={() => setActiveTab('cube-register')}
+          className={`flex items-center gap-2 px-4 py-3 min-h-[48px] text-xs md:text-sm font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
+            activeTab === 'cube-register'
+              ? 'bg-orange-600 text-white shadow-md'
+              : 'text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white'
+          }`}
+        >
+          <Layers size={16} />
+          Cube Test Register (Set of 3)
+        </button>
+
+        <button
           onClick={() => setActiveTab('samples')}
           className={`flex items-center gap-2 px-4 py-3 min-h-[48px] text-xs md:text-sm font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
             activeTab === 'samples'
@@ -301,7 +316,7 @@ export default function LabManagement() {
           }`}
         >
           <FlaskConical size={16} />
-          Test Register ({samples.length})
+          General Test Register ({samples.length})
         </button>
 
         <button
@@ -341,7 +356,16 @@ export default function LabManagement() {
         </button>
       </div>
 
-      {/* TAB 1: TEST REGISTER & RESULTS */}
+      {/* TAB 0: CONCRETE CUBE TEST REGISTER (SET OF 3) */}
+      {activeTab === 'cube-register' && (
+        <ConcreteCubeRegister
+          pours={cubePours}
+          onUpdatePours={setCubePours}
+          showToast={showToast}
+        />
+      )}
+
+      {/* TAB 1: GENERAL TEST REGISTER & RESULTS */}
       {activeTab === 'samples' && (
         <div className="space-y-4">
           {/* 3. QUICK FILTER HORIZONTAL PILL CHIPS */}
