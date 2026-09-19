@@ -1,7 +1,13 @@
 import React, { useState } from 'react';
 import Button from '../Button';
 import NewCubePourModal from './NewCubePourModal';
-import { calculateCompressiveStrength, evaluateCubeGroup } from '../../data/mockCubeRegisterData';
+import {
+  calculateCompressiveStrength,
+  evaluateCubeGroup,
+  addDaysToDate,
+  formatDateDisplay,
+  evaluateTestingStatus
+} from '../../data/mockCubeRegisterData';
 import {
   Calendar,
   Layers,
@@ -14,12 +20,13 @@ import {
   FileCheck,
   ShieldCheck,
   UserCheck,
-  Scale,
-  Activity,
   Sparkles,
   Info,
   Clock,
-  Printer
+  Bell,
+  AlertCircle,
+  Filter,
+  FileWarning
 } from 'lucide-react';
 
 export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePours, showToast }) {
@@ -28,6 +35,7 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [expandedMobileIds, setExpandedMobileIds] = useState({});
+  const [filterActionQueue, setFilterActionQueue] = useState(false);
 
   // Toggle mobile accordion
   const toggleAccordion = (id) => {
@@ -58,10 +66,11 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
       } else if (field === 'crushingLoad') {
         const loadVal = parseFloat(value) || 0;
         const calcStrength = calculateCompressiveStrength(loadVal);
+        const todayStr = new Date().toISOString().split('T')[0];
 
         targetCube[testPeriod] = {
           ...targetCube[testPeriod],
-          testingDate: loadVal > 0 ? (targetCube[testPeriod]?.testingDate || new Date().toISOString().split('T')[0]) : '',
+          testingDate: loadVal > 0 ? (targetCube[testPeriod]?.testingDate || todayStr) : '',
           crushingLoad: loadVal,
           compressiveStrength: calcStrength
         };
@@ -73,6 +82,15 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
 
     setPours(updated);
     if (onUpdatePours) onUpdatePours(updated);
+  };
+
+  // Handler: Update Date Deviation Reason (The Weekend & Holiday Fail-Safe)
+  const handleDeviationReasonChange = (pourId, period, reason) => {
+    const fieldKey = period === 'day7' ? 'deviationReason7Day' : 'deviationReason28Day';
+    const updated = pours.map((p) => (p.id === pourId ? { ...p, [fieldKey]: reason } : p));
+    setPours(updated);
+    if (onUpdatePours) onUpdatePours(updated);
+    if (showToast) showToast(`Updated date deviation reason to "${reason}" for NABL report`);
   };
 
   // Handler: Parent Remarks Update
@@ -104,21 +122,46 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
     if (showToast) showToast(`Digitally verified & stamped pour ${pourId} ✓`);
   };
 
-  // Filtered pours based on search
+  // Compute Daily Testing Queue counts for Push Notification Banner
+  const periodDays = testPeriod === 'day7' ? 7 : 28;
+
+  let readyTodayCount = 0;
+  let overdueCount = 0;
+
+  pours.forEach((p) => {
+    const hasCompleted = p.cubes.some((c) => (c[testPeriod]?.compressiveStrength || 0) > 0);
+    const actualDate = p.cubes[0]?.[testPeriod]?.testingDate || null;
+    const statusObj = evaluateTestingStatus(p.pourDate, periodDays, actualDate, hasCompleted);
+    if (statusObj.status === 'READY_TODAY') readyTodayCount++;
+    if (statusObj.status === 'OVERDUE') overdueCount++;
+  });
+
+  // Filtered pours based on search & active action queue toggle
   const filteredPours = pours.filter((p) => {
     const q = searchTerm.toLowerCase();
-    return (
+    const matchesSearch = (
       p.location.toLowerCase().includes(q) ||
       p.grade.toLowerCase().includes(q) ||
       p.mixDesignNo.toLowerCase().includes(q) ||
       p.pourCardNo.toLowerCase().includes(q) ||
       p.id.toLowerCase().includes(q)
     );
+
+    if (!matchesSearch) return false;
+
+    if (filterActionQueue) {
+      const hasCompleted = p.cubes.some((c) => (c[testPeriod]?.compressiveStrength || 0) > 0);
+      const actualDate = p.cubes[0]?.[testPeriod]?.testingDate || null;
+      const statusObj = evaluateTestingStatus(p.pourDate, periodDays, actualDate, hasCompleted);
+      return statusObj.status === 'READY_TODAY' || statusObj.status === 'OVERDUE';
+    }
+
+    return true;
   });
 
   return (
     <div className="space-y-6">
-      {/* 1. Header Controls & Testing Timelines Switch (7-Day vs 28-Day) */}
+      {/* 1. Header Controls & Timeline Switch */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 p-5 rounded-2xl shadow-sm">
         <div className="flex items-center gap-3">
           <div className="p-3 rounded-2xl bg-orange-500/10 text-orange-600 dark:text-orange-400">
@@ -132,7 +175,7 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
               </span>
             </h2>
             <p className="text-xs text-black/60 dark:text-white/60">
-              Set of 3 cubes per pour with auto-calculated mean strength & IS Code ±15% deviation check.
+              Set of 3 cubes per pour with automated lab scheduling & IS Code ±15% deviation checks.
             </p>
           </div>
         </div>
@@ -176,7 +219,48 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
         </div>
       </div>
 
-      {/* 2. Search & Info Bar */}
+      {/* 2. AUTOMATED LAB TECHNICIAN PUSH NOTIFICATION / ALERTING ENGINE BANNER */}
+      {(readyTodayCount > 0 || overdueCount > 0) && (
+        <div className="p-4 bg-gradient-to-r from-orange-500/15 via-amber-500/10 to-red-500/15 border border-orange-500/30 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3 animate-fadeIn">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 rounded-xl bg-orange-500 text-white shrink-0 mt-0.5 shadow-sm">
+              <Bell size={18} className="animate-bounce" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-wider text-orange-700 dark:text-orange-300">
+                  🔬 Lab Scheduling Alert (07:00 AM Dispatch)
+                </span>
+                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-orange-500 text-white">
+                  Active Notice
+                </span>
+              </div>
+              <p className="text-xs font-medium text-black/80 dark:text-white/80 mt-1 leading-relaxed">
+                You have <strong className="text-orange-600 dark:text-orange-400 font-bold">{readyTodayCount} cube set{readyTodayCount === 1 ? '' : 's'}</strong> due for compression testing today.
+                {overdueCount > 0 && (
+                  <span> <strong className="text-red-600 dark:text-red-400 font-bold">{overdueCount} set{overdueCount === 1 ? '' : 's'}</strong> are currently overdue.</span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setFilterActionQueue(!filterActionQueue)}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                filterActionQueue
+                  ? 'bg-orange-600 text-white border-orange-600 shadow-md'
+                  : 'bg-white dark:bg-[#0a0f1d] text-orange-600 dark:text-orange-400 border-orange-500/30 hover:bg-orange-500/10'
+              }`}
+            >
+              <Filter size={14} />
+              {filterActionQueue ? 'Show All Pours' : `Filter Testing Queue (${readyTodayCount + overdueCount})`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Search & Info Bar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="relative w-full sm:w-80">
           <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-black/40 dark:text-white/40" />
@@ -195,7 +279,7 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
         </div>
       </div>
 
-      {/* 3. DESKTOP VIEW (>768px): Grouped Data Grid replicating handwritten site logbook */}
+      {/* 4. DESKTOP VIEW (>768px): Grouped Data Grid replicating handwritten site logbook */}
       <div className="hidden md:block bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 rounded-2xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto scrollbar-thin">
           <table className="w-full text-left border-collapse text-xs">
@@ -207,9 +291,9 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                 <th className="p-3 border-r border-black/10 dark:border-white/10">Date & Card #</th>
                 <th className="p-3 border-r border-black/10 dark:border-white/10">Structure Location</th>
                 <th className="p-3 border-r border-black/10 dark:border-white/10 w-24">Weight (kg)</th>
-                <th className="p-3 border-r border-black/10 dark:border-white/10 w-28">{testPeriod === 'day7' ? '7-Day' : '28-Day'} Load (kN)</th>
+                <th className="p-3 border-r border-black/10 dark:border-white/10 w-32">{testPeriod === 'day7' ? '7-Day' : '28-Day'} Load (kN)</th>
                 <th className="p-3 border-r border-black/10 dark:border-white/10 w-32">Strength (N/mm²)</th>
-                <th className="p-3 border-r border-black/10 dark:border-white/10 w-36 text-center">Mean Strength</th>
+                <th className="p-3 border-r border-black/10 dark:border-white/10 w-44 text-center">Mean Strength & Status</th>
                 <th className="p-3">Remarks & Digital Sign-off</th>
               </tr>
             </thead>
@@ -225,6 +309,26 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                 filteredPours.map((pour) => {
                   const evalResult = evaluateCubeGroup(pour.cubes, testPeriod);
                   const { meanStrength, hasDeviationWarning, cubeDeviations } = evalResult;
+
+                  const targetDateStr = testPeriod === 'day7'
+                    ? (pour.target7DayDate || addDaysToDate(pour.pourDate, 7))
+                    : (pour.target28DayDate || addDaysToDate(pour.pourDate, 28));
+
+                  const hasCompletedResults = pour.cubes.some((c) => (c[testPeriod]?.compressiveStrength || 0) > 0);
+                  const actualTestingDate = pour.cubes[0]?.[testPeriod]?.testingDate || null;
+                  const schedulingStatusObj = evaluateTestingStatus(pour.pourDate, periodDays, actualTestingDate, hasCompletedResults);
+
+                  // Date Deviation Check for Weekend/Holiday Fail-Safe
+                  const deviationReason = testPeriod === 'day7' ? pour.deviationReason7Day : pour.deviationReason28Day;
+                  let isDateDeviated = false;
+                  let daysDateDiff = 0;
+
+                  if (actualTestingDate && targetDateStr) {
+                    const actualD = new Date(actualTestingDate);
+                    const targetD = new Date(targetDateStr);
+                    daysDateDiff = Math.round((actualD - targetD) / (1000 * 3600 * 24));
+                    if (Math.abs(daysDateDiff) > 0) isDateDeviated = true;
+                  }
 
                   return (
                     <React.Fragment key={pour.id}>
@@ -268,10 +372,13 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                             {idx === 0 ? (
                               <td
                                 rowSpan="3"
-                                className="p-3 border-r border-black/10 dark:border-white/10 bg-black/[0.01] dark:bg-white/[0.01] align-top"
+                                className="p-3 border-r border-black/10 dark:border-white/10 bg-black/[0.01] dark:bg-white/[0.01] align-top space-y-1"
                               >
                                 <span className="font-medium text-black dark:text-white block">{pour.pourDate}</span>
-                                <span className="text-[10px] font-semibold text-black/50 dark:text-white/50">Card #{pour.pourCardNo}</span>
+                                <span className="text-[10px] font-semibold text-black/50 dark:text-white/50 block">Card #{pour.pourCardNo}</span>
+                                <span className="inline-block text-[10px] font-mono text-orange-600 dark:text-orange-400 font-bold bg-orange-500/10 px-1.5 py-0.5 rounded">
+                                  Target: {formatDateDisplay(targetDateStr)}
+                                </span>
                               </td>
                             ) : null}
 
@@ -296,16 +403,21 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                               />
                             </td>
 
-                            {/* Crushing Load (kN) */}
+                            {/* Crushing Load (kN) with Empty State Target Placeholder */}
                             <td className="p-2 border-r border-black/10 dark:border-white/10">
                               <input
                                 type="number"
                                 step="1"
                                 value={testData.crushingLoad || ''}
                                 onChange={(e) => handleCubeUpdate(pour.id, idx, 'crushingLoad', e.target.value)}
-                                placeholder="kN"
-                                className="w-full px-2 py-1 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded font-mono text-xs font-bold text-black dark:text-white focus:outline-none focus:ring-1 focus:ring-orange-500"
+                                placeholder={`Target: ${formatDateDisplay(targetDateStr)}`}
+                                className="w-full px-2 py-1 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded font-mono text-xs font-bold text-black dark:text-white placeholder:text-black/35 dark:placeholder:text-white/35 focus:outline-none focus:ring-1 focus:ring-orange-500"
                               />
+                              {!testData.crushingLoad && (
+                                <p className="text-[9px] font-mono text-black/40 dark:text-white/40 mt-0.5">
+                                  Due: {formatDateDisplay(targetDateStr)}
+                                </p>
+                              )}
                             </td>
 
                             {/* Auto-Calculated Compressive Strength (N/mm²) - Readonly Field */}
@@ -323,42 +435,60 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                               )}
                             </td>
 
-                            {/* Mean Compressive Strength (Merged Bracket spanning 3 rows) */}
+                            {/* Mean Compressive Strength & Automated Status Badges */}
                             {idx === 0 ? (
                               <td
                                 rowSpan="3"
                                 className={`p-3 border-r border-black/10 dark:border-white/10 align-middle text-center relative ${
                                   hasDeviationWarning
                                     ? 'bg-red-500/10 dark:bg-red-500/15 text-red-600 dark:text-red-400'
-                                    : 'bg-emerald-500/5 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                    : schedulingStatusObj.status === 'READY_TODAY'
+                                    ? 'bg-orange-500/10 dark:bg-orange-500/15 text-orange-600 dark:text-orange-400'
+                                    : schedulingStatusObj.status === 'OVERDUE'
+                                    ? 'bg-red-500/10 dark:bg-red-500/15 text-red-600 dark:text-red-400'
+                                    : 'bg-black/[0.01] dark:bg-white/[0.01]'
                                 }`}
                               >
-                                <div className="flex flex-col items-center justify-center space-y-1">
+                                <div className="flex flex-col items-center justify-center space-y-1.5">
                                   <span className="text-[10px] uppercase font-bold tracking-wider text-black/50 dark:text-white/50">
                                     Mean (3 Cubes)
                                   </span>
-                                  <span className="text-base font-black font-mono tracking-tight">
+
+                                  <span className="text-base font-black font-mono tracking-tight text-black dark:text-white">
                                     {meanStrength > 0 ? `${meanStrength.toFixed(2)} N/mm²` : 'Pending'}
                                   </span>
 
+                                  {/* Mean Column Status Badges */}
                                   {hasDeviationWarning ? (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-red-500/20 text-red-700 dark:text-red-300 px-2 py-0.5 rounded-full">
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-red-500/20 text-red-700 dark:text-red-300 px-2.5 py-0.5 rounded-full">
                                       <AlertTriangle size={12} /> IS 456 Warning
                                     </span>
                                   ) : meanStrength > 0 ? (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full">
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 px-2.5 py-0.5 rounded-full">
                                       <CheckCircle2 size={12} /> Verified Pass
                                     </span>
-                                  ) : null}
+                                  ) : schedulingStatusObj.status === 'READY_TODAY' ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-orange-500 text-white px-2.5 py-1 rounded-full animate-pulse shadow-sm">
+                                      <Clock size={12} /> Test Due Today
+                                    </span>
+                                  ) : schedulingStatusObj.status === 'OVERDUE' ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-red-600 text-white px-2.5 py-1 rounded-full shadow-sm">
+                                      <AlertCircle size={12} /> Overdue by {schedulingStatusObj.daysDiff} Day{schedulingStatusObj.daysDiff > 1 ? 's' : ''}
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300 px-2.5 py-0.5 rounded-full">
+                                      <Clock size={12} /> Pending (Due {formatDateDisplay(targetDateStr)})
+                                    </span>
+                                  )}
                                 </div>
                               </td>
                             ) : null}
 
-                            {/* Remarks & Digital Sign-off (Merged on first row) */}
+                            {/* Remarks, Weekend/Holiday Deviation & Digital Sign-off */}
                             {idx === 0 ? (
                               <td
                                 rowSpan="3"
-                                className="p-3 align-top bg-black/[0.01] dark:bg-white/[0.01] space-y-2"
+                                className="p-3 align-top bg-black/[0.01] dark:bg-white/[0.01] space-y-2.5"
                               >
                                 <input
                                   type="text"
@@ -367,6 +497,34 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                                   placeholder="Add site remarks..."
                                   className="w-full px-2.5 py-1.5 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-lg text-xs text-black dark:text-white focus:outline-none focus:ring-1 focus:ring-orange-500"
                                 />
+
+                                {/* The "Weekend & Holiday" Fail-Safe Deviation Selector */}
+                                {isDateDeviated && (
+                                  <div className="p-2 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-1">
+                                    <div className="flex items-center justify-between text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                                      <span className="flex items-center gap-1">
+                                        <FileWarning size={12} /> Date Deviation ({daysDateDiff > 0 ? `+${daysDateDiff}` : daysDateDiff} Days):
+                                      </span>
+                                    </div>
+                                    <select
+                                      value={deviationReason || ''}
+                                      onChange={(e) => handleDeviationReasonChange(pour.id, testPeriod, e.target.value)}
+                                      className="w-full px-2 py-1 bg-white dark:bg-[#0a0f1d] border border-amber-500/30 rounded text-[11px] font-semibold text-black dark:text-white focus:outline-none"
+                                    >
+                                      <option value="">Select Reason for Deviation...</option>
+                                      <option value="Weekend/Holiday">Weekend / Site Holiday</option>
+                                      <option value="Machine Breakdown">CTM Machine Breakdown</option>
+                                      <option value="Tech Unavailable">Technician Unavailable</option>
+                                      <option value="Other">Other Reason</option>
+                                    </select>
+
+                                    {Math.abs(daysDateDiff) > 1 && (
+                                      <p className="text-[9px] font-bold text-red-600 dark:text-red-400 flex items-center gap-1 mt-1">
+                                        ⚠️ Flagged for NABL PDF Report Compliance
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
 
                                 <div>
                                   {pour.digitallyVerifiedBy ? (
@@ -401,7 +559,7 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
         </div>
       </div>
 
-      {/* 4. MOBILE VIEW (<=768px): Expandable Card Accordion (PWA Optimized) */}
+      {/* 5. MOBILE VIEW (<=768px): Expandable Card Accordion (PWA Optimized) */}
       <div className="block md:hidden space-y-4">
         {filteredPours.length === 0 ? (
           <div className="p-8 bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 rounded-2xl text-center text-black/50 dark:text-white/50 text-xs">
@@ -413,12 +571,33 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
             const evalResult = evaluateCubeGroup(pour.cubes, testPeriod);
             const { meanStrength, hasDeviationWarning } = evalResult;
 
+            const targetDateStr = testPeriod === 'day7'
+              ? (pour.target7DayDate || addDaysToDate(pour.pourDate, 7))
+              : (pour.target28DayDate || addDaysToDate(pour.pourDate, 28));
+
+            const hasCompletedResults = pour.cubes.some((c) => (c[testPeriod]?.compressiveStrength || 0) > 0);
+            const actualTestingDate = pour.cubes[0]?.[testPeriod]?.testingDate || null;
+            const schedulingStatusObj = evaluateTestingStatus(pour.pourDate, periodDays, actualTestingDate, hasCompletedResults);
+
+            const deviationReason = testPeriod === 'day7' ? pour.deviationReason7Day : pour.deviationReason28Day;
+            let isDateDeviated = false;
+            let daysDateDiff = 0;
+
+            if (actualTestingDate && targetDateStr) {
+              const actualD = new Date(actualTestingDate);
+              const targetD = new Date(targetDateStr);
+              daysDateDiff = Math.round((actualD - targetD) / (1000 * 3600 * 24));
+              if (Math.abs(daysDateDiff) > 0) isDateDeviated = true;
+            }
+
             return (
               <div
                 key={pour.id}
                 className={`bg-white dark:bg-[#0a0f1d] border rounded-2xl overflow-hidden shadow-sm transition-all ${
-                  hasDeviationWarning
+                  hasDeviationWarning || schedulingStatusObj.status === 'OVERDUE'
                     ? 'border-red-500/40 bg-red-500/[0.02]'
+                    : schedulingStatusObj.status === 'READY_TODAY'
+                    ? 'border-orange-500/40 bg-orange-500/[0.02]'
                     : 'border-black/10 dark:border-white/10'
                 }`}
               >
@@ -437,12 +616,10 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-3 text-[11px] text-black/60 dark:text-white/60">
+                    <div className="flex items-center gap-2 text-[11px] text-black/60 dark:text-white/60">
                       <span>Card #{pour.pourCardNo}</span>
                       <span>•</span>
-                      <span>{pour.pourDate}</span>
-                      <span>•</span>
-                      <span className="font-mono text-black/70 dark:text-white/70">Mix: {pour.mixDesignNo}</span>
+                      <span>Target: {formatDateDisplay(targetDateStr)}</span>
                     </div>
                   </div>
 
@@ -464,8 +641,8 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
 
                 {/* Status Badge Ribbon */}
                 <div className="px-4 py-2 border-t border-b border-black/5 dark:border-white/5 flex items-center justify-between text-[11px]">
-                  <span className="text-black/60 dark:text-white/60">
-                    Cubes Range: <strong className="font-mono text-black dark:text-white">{pour.srNoRange}</strong>
+                  <span className="text-black/60 dark:text-white/60 font-mono">
+                    Pour Date: {pour.pourDate}
                   </span>
 
                   {hasDeviationWarning ? (
@@ -476,9 +653,17 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                     <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
                       <CheckCircle2 size={12} /> Passed ({testPeriod === 'day7' ? '7-Day' : '28-Day'})
                     </span>
+                  ) : schedulingStatusObj.status === 'READY_TODAY' ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-white bg-orange-500 px-2 py-0.5 rounded-full animate-pulse">
+                      <Clock size={12} /> Test Due Today
+                    </span>
+                  ) : schedulingStatusObj.status === 'OVERDUE' ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-white bg-red-600 px-2 py-0.5 rounded-full">
+                      <AlertCircle size={12} /> Overdue by {schedulingStatusObj.daysDiff} Days
+                    </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">
-                      <Clock size={12} /> Pending Test
+                      <Clock size={12} /> Pending (Due {formatDateDisplay(targetDateStr)})
                     </span>
                   )}
                 </div>
@@ -489,7 +674,7 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                     <div className="flex items-center justify-between text-xs font-bold text-black/70 dark:text-white/70">
                       <span>Enter 3 Cube Test Data:</span>
                       <span className="text-[10px] text-orange-600 dark:text-orange-400 font-mono">
-                        Formula: (Load × 1000) / 22,500
+                        Target Date: {formatDateDisplay(targetDateStr)}
                       </span>
                     </div>
 
@@ -545,8 +730,8 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                                   step="1"
                                   value={testData.crushingLoad || ''}
                                   onChange={(e) => handleCubeUpdate(pour.id, idx, 'crushingLoad', e.target.value)}
-                                  placeholder="kN"
-                                  className="w-full px-3 py-2 bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 rounded-xl text-xs font-mono font-bold text-black dark:text-white"
+                                  placeholder={`Target: ${formatDateDisplay(targetDateStr)}`}
+                                  className="w-full px-3 py-2 bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 rounded-xl text-xs font-mono font-bold text-black dark:text-white placeholder:text-black/35"
                                 />
                               </div>
                             </div>
@@ -583,6 +768,26 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                           </span>
                         ) : null}
                       </div>
+
+                      {/* Weekend/Holiday Fail-Safe Selector on Mobile */}
+                      {isDateDeviated && (
+                        <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-1 text-xs">
+                          <label className="block text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                            Reason for Date Deviation ({daysDateDiff > 0 ? `+${daysDateDiff}` : daysDateDiff} Days):
+                          </label>
+                          <select
+                            value={deviationReason || ''}
+                            onChange={(e) => handleDeviationReasonChange(pour.id, testPeriod, e.target.value)}
+                            className="w-full px-2.5 py-1.5 bg-white dark:bg-[#0a0f1d] border border-amber-500/30 rounded-lg text-xs font-semibold text-black dark:text-white"
+                          >
+                            <option value="">Select Reason...</option>
+                            <option value="Weekend/Holiday">Weekend / Site Holiday</option>
+                            <option value="Machine Breakdown">CTM Machine Breakdown</option>
+                            <option value="Tech Unavailable">Technician Unavailable</option>
+                            <option value="Other">Other Reason</option>
+                          </select>
+                        </div>
+                      )}
 
                       {/* Remarks */}
                       <input

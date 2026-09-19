@@ -1,5 +1,53 @@
 // Mock Database for Concrete Cube Test Register (Set of 3 Cubes per Pour)
 
+// Helper to add days to a YYYY-MM-DD date string
+export function addDaysToDate(dateStr, days) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split('T')[0];
+}
+
+// Helper to format YYYY-MM-DD into DD-MMM-YYYY (e.g. 02-Sep-2026)
+export function formatDateDisplay(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  const day = String(d.getDate()).padStart(2, '0');
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = monthNames[d.getMonth()];
+  const year = d.getFullYear();
+  return `${day}-${month}-${year}`;
+}
+
+// Helper to evaluate testing status: 'PENDING' | 'READY_TODAY' | 'OVERDUE' | 'COMPLETED'
+export function evaluateTestingStatus(pourDate, targetDays, actualDate, hasCompletedResults) {
+  if (hasCompletedResults) {
+    return { status: 'COMPLETED', badgeText: 'Completed', daysDiff: 0 };
+  }
+
+  const targetDateStr = addDaysToDate(pourDate, targetDays);
+  if (!targetDateStr) return { status: 'PENDING', badgeText: 'Pending', daysDiff: 0 };
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const target = new Date(targetDateStr);
+  target.setHours(0, 0, 0, 0);
+
+  const diffTime = today.getTime() - target.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 3600 * 24));
+
+  if (diffDays < 0) {
+    return { status: 'PENDING', badgeText: `Pending (Due ${formatDateDisplay(targetDateStr)})`, daysDiff: diffDays, targetDateStr };
+  } else if (diffDays === 0) {
+    return { status: 'READY_TODAY', badgeText: 'Test Due Today', daysDiff: 0, targetDateStr };
+  } else {
+    return { status: 'OVERDUE', badgeText: `Overdue by ${diffDays} Day${diffDays > 1 ? 's' : ''}`, daysDiff: diffDays, targetDateStr };
+  }
+}
+
 export const INITIAL_CUBE_POURS = [
   {
     id: 'POUR-2026-0199',
@@ -7,6 +55,8 @@ export const INITIAL_CUBE_POURS = [
     mixDesignNo: 'MD016',
     grade: 'M30',
     pourDate: '2026-08-05',
+    target7DayDate: '2026-08-12',
+    target28DayDate: '2026-09-02',
     pourCardNo: '9',
     location: 'C Footing',
     remarks: 'Target 28-Day Strength: 30 N/mm². Complies with IS:456 & IS:516.',
@@ -15,6 +65,8 @@ export const INITIAL_CUBE_POURS = [
       timestamp: '2026-09-02 11:30 AM',
       role: 'Contractor + Consultant QC'
     },
+    deviationReason7Day: null,
+    deviationReason28Day: null,
     cubes: [
       {
         cubeId: '49A',
@@ -45,35 +97,39 @@ export const INITIAL_CUBE_POURS = [
     mixDesignNo: 'MD016',
     grade: 'M30',
     pourDate: '2026-08-05',
+    target7DayDate: '2026-08-12',
+    target28DayDate: '2026-09-02',
     pourCardNo: '9',
     location: 'C Footing (Bay 2)',
-    remarks: 'Good compaction & moist sand curing tank.',
+    remarks: 'Tested on Day 29 due to Sunday site closure.',
     digitallyVerifiedBy: {
       name: 'Er. K.B. (Contractor)',
-      timestamp: '2026-09-02 12:15 PM',
+      timestamp: '2026-09-03 12:15 PM',
       role: 'Contractor QC'
     },
+    deviationReason7Day: null,
+    deviationReason28Day: 'Weekend/Holiday',
     cubes: [
       {
         cubeId: '50A',
         srNo: '0202',
         weight: 8.778,
         day7: { testingDate: '2026-08-12', crushingLoad: 610, compressiveStrength: 27.11 },
-        day28: { testingDate: '2026-09-02', crushingLoad: 835, compressiveStrength: 37.11 }
+        day28: { testingDate: '2026-09-03', crushingLoad: 835, compressiveStrength: 37.11 }
       },
       {
         cubeId: '50B',
         srNo: '0203',
         weight: 8.658,
         day7: { testingDate: '2026-08-12', crushingLoad: 560, compressiveStrength: 24.89 },
-        day28: { testingDate: '2026-09-02', crushingLoad: 759, compressiveStrength: 33.73 }
+        day28: { testingDate: '2026-09-03', crushingLoad: 759, compressiveStrength: 33.73 }
       },
       {
         cubeId: '50C',
         srNo: '0204',
         weight: 8.894,
         day7: { testingDate: '2026-08-12', crushingLoad: 630, compressiveStrength: 28.0 },
-        day28: { testingDate: '2026-09-02', crushingLoad: 865, compressiveStrength: 38.44 }
+        day28: { testingDate: '2026-09-03', crushingLoad: 865, compressiveStrength: 38.44 }
       }
     ]
   },
@@ -82,32 +138,73 @@ export const INITIAL_CUBE_POURS = [
     srNoRange: '0208 - 0210',
     mixDesignNo: 'MD016',
     grade: 'M30',
-    pourDate: '2026-08-05',
+    pourDate: '2026-08-22',
+    target7DayDate: '2026-08-29',
+    target28DayDate: '2026-09-19', // Target 28-day is TODAY! (2026-09-19)
     pourCardNo: '10',
-    location: 'B Footing',
-    remarks: '7-day test completed. 28-day curing in progress.',
+    location: 'B Footing (Section 1)',
+    remarks: '28-Day Compression Test due today!',
     digitallyVerifiedBy: null,
+    deviationReason7Day: null,
+    deviationReason28Day: null,
     cubes: [
       {
         cubeId: '52A',
         srNo: '0208',
         weight: 8.976,
-        day7: { testingDate: '2026-08-12', crushingLoad: 626, compressiveStrength: 27.82 },
+        day7: { testingDate: '2026-08-29', crushingLoad: 626, compressiveStrength: 27.82 },
         day28: { testingDate: '', crushingLoad: 0, compressiveStrength: 0 }
       },
       {
         cubeId: '52B',
         srNo: '0209',
         weight: 8.878,
-        day7: { testingDate: '2026-08-12', crushingLoad: 541, compressiveStrength: 24.04 },
+        day7: { testingDate: '2026-08-29', crushingLoad: 541, compressiveStrength: 24.04 },
         day28: { testingDate: '', crushingLoad: 0, compressiveStrength: 0 }
       },
       {
         cubeId: '52C',
         srNo: '0210',
         weight: 8.816,
-        day7: { testingDate: '2026-08-12', crushingLoad: 574, compressiveStrength: 25.51 },
+        day7: { testingDate: '2026-08-29', crushingLoad: 574, compressiveStrength: 25.51 },
         day28: { testingDate: '', crushingLoad: 0, compressiveStrength: 0 }
+      }
+    ]
+  },
+  {
+    id: 'POUR-2026-0215',
+    srNoRange: '0215 - 0217',
+    mixDesignNo: 'MD020',
+    grade: 'M35',
+    pourDate: '2026-08-15',
+    target7DayDate: '2026-08-22',
+    target28DayDate: '2026-09-12', // Target 28-day was 7 days ago -> OVERDUE!
+    pourCardNo: '12',
+    location: 'Raft Slab Core Section',
+    remarks: 'Overdue by 7 days. CTM machine maintenance delay.',
+    digitallyVerifiedBy: null,
+    deviationReason7Day: null,
+    deviationReason28Day: 'Machine Breakdown',
+    cubes: [
+      {
+        cubeId: '54A',
+        srNo: '0215',
+        weight: 9.044,
+        day7: { testingDate: '2026-08-22', crushingLoad: 720, compressiveStrength: 32.0 },
+        day28: { testingDate: '', crushingLoad: 0, compressiveStrength: 0 }
+      },
+      {
+        cubeId: '54B',
+        srNo: '0216',
+        weight: 9.018,
+        day7: { testingDate: '2026-08-22', crushingLoad: 710, compressiveStrength: 31.56 },
+        day28: { testingDate: '', crushingLoad: 0, compressiveStrength: 0 }
+      },
+      {
+        cubeId: '54C',
+        srNo: '0217',
+        weight: 9.104,
+        day7: { testingDate: '2026-08-22', crushingLoad: 735, compressiveStrength: 32.67 }
       }
     ]
   },
@@ -116,70 +213,36 @@ export const INITIAL_CUBE_POURS = [
     srNoRange: '0220 - 0222',
     mixDesignNo: 'MD016',
     grade: 'M30',
-    pourDate: '2026-08-06',
-    pourCardNo: '11',
+    pourDate: '2026-09-12',
+    target7DayDate: '2026-09-19', // Target 7-day is TODAY!
+    target28DayDate: '2026-10-10', // Target 28-day is in future (Pending)
+    pourCardNo: '13',
     location: 'EEB Part A&B Footing',
-    remarks: 'Batching plant W/C ratio verified at 0.42.',
-    digitallyVerifiedBy: {
-      name: 'EIL Consultant Rep',
-      timestamp: '2026-08-13 03:00 PM',
-      role: 'EIL Consultant'
-    },
+    remarks: 'Batching plant W/C ratio verified at 0.42. 7-Day due today.',
+    digitallyVerifiedBy: null,
+    deviationReason7Day: null,
+    deviationReason28Day: null,
     cubes: [
       {
         cubeId: '56A',
         srNo: '0220',
         weight: 8.886,
-        day7: { testingDate: '2026-08-13', crushingLoad: 807, compressiveStrength: 35.87 },
+        day7: { testingDate: '', crushingLoad: 0, compressiveStrength: 0 },
         day28: { testingDate: '', crushingLoad: 0, compressiveStrength: 0 }
       },
       {
         cubeId: '56B',
         srNo: '0221',
         weight: 9.12,
-        day7: { testingDate: '2026-08-13', crushingLoad: 682, compressiveStrength: 30.31 },
+        day7: { testingDate: '', crushingLoad: 0, compressiveStrength: 0 },
         day28: { testingDate: '', crushingLoad: 0, compressiveStrength: 0 }
       },
       {
         cubeId: '56C',
         srNo: '0222',
         weight: 9.14,
-        day7: { testingDate: '2026-08-13', crushingLoad: 727, compressiveStrength: 32.31 },
+        day7: { testingDate: '', crushingLoad: 0, compressiveStrength: 0 },
         day28: { testingDate: '', crushingLoad: 0, compressiveStrength: 0 }
-      }
-    ]
-  },
-  {
-    id: 'POUR-2026-0223',
-    srNoRange: '0223 - 0225',
-    mixDesignNo: 'MD020',
-    grade: 'M25',
-    pourDate: '2026-08-10',
-    pourCardNo: '14',
-    location: 'Column C2 - Floor 2',
-    remarks: 'Cube 57C shows >15% strength deviation from Mean (IS Code 456 warning).',
-    digitallyVerifiedBy: null,
-    cubes: [
-      {
-        cubeId: '57A',
-        srNo: '0223',
-        weight: 8.886,
-        day7: { testingDate: '2026-08-17', crushingLoad: 450, compressiveStrength: 20.0 },
-        day28: { testingDate: '2026-09-07', crushingLoad: 901, compressiveStrength: 40.04 }
-      },
-      {
-        cubeId: '57B',
-        srNo: '0224',
-        weight: 9.12,
-        day7: { testingDate: '2026-08-17', crushingLoad: 460, compressiveStrength: 20.44 },
-        day28: { testingDate: '2026-09-07', crushingLoad: 926, compressiveStrength: 41.16 }
-      },
-      {
-        cubeId: '57C',
-        srNo: '0225',
-        weight: 8.99,
-        day7: { testingDate: '2026-08-17', crushingLoad: 315, compressiveStrength: 14.0 },
-        day28: { testingDate: '2026-09-07', crushingLoad: 995, compressiveStrength: 44.22 }
       }
     ]
   }

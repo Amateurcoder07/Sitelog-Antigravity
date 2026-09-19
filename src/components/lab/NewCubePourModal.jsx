@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import Button from '../Button';
-import { calculateCompressiveStrength } from '../../data/mockCubeRegisterData';
-import { X, Calendar, Layers, Hash, MapPin, Scale, Activity, ShieldCheck, Sparkles } from 'lucide-react';
+import { calculateCompressiveStrength, addDaysToDate, formatDateDisplay } from '../../data/mockCubeRegisterData';
+import { X, Calendar, Layers, Clock, Sparkles } from 'lucide-react';
 
 export default function NewCubePourModal({ isOpen, onClose, onSave }) {
   if (!isOpen) return null;
@@ -12,6 +12,10 @@ export default function NewCubePourModal({ isOpen, onClose, onSave }) {
   const [pourCardNo, setPourCardNo] = useState('15');
   const [location, setLocation] = useState('Tower A - Floor 5 - Beam B4');
   const [remarks, setRemarks] = useState('150mm Cubes (Set of 3). Standard moist curing tank.');
+
+  // Auto-calculated target testing dates
+  const target7DayDate = addDaysToDate(pourDate, 7);
+  const target28DayDate = addDaysToDate(pourDate, 28);
 
   // 3 Cubes State
   const [cubesData, setCubesData] = useState([
@@ -40,10 +44,14 @@ export default function NewCubePourModal({ isOpen, onClose, onSave }) {
       mixDesignNo,
       grade,
       pourDate,
+      target7DayDate,
+      target28DayDate,
       pourCardNo,
       location,
       remarks,
       digitallyVerifiedBy: null,
+      deviationReason7Day: null,
+      deviationReason28Day: null,
       cubes: cubesData.map((c) => {
         const str7 = calculateCompressiveStrength(c.load7);
         const str28 = calculateCompressiveStrength(c.load28);
@@ -53,12 +61,12 @@ export default function NewCubePourModal({ isOpen, onClose, onSave }) {
           srNo: c.srNo,
           weight: parseFloat(c.weight) || 8.75,
           day7: {
-            testingDate: c.load7 ? pourDate : '',
+            testingDate: c.load7 ? (pourDate) : '',
             crushingLoad: parseFloat(c.load7) || 0,
             compressiveStrength: str7
           },
           day28: {
-            testingDate: c.load28 ? pourDate : '',
+            testingDate: c.load28 ? (pourDate) : '',
             crushingLoad: parseFloat(c.load28) || 0,
             compressiveStrength: str28
           }
@@ -170,6 +178,22 @@ export default function NewCubePourModal({ isOpen, onClose, onSave }) {
                 className="w-full px-3.5 py-2.5 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-xl text-sm font-semibold text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
                 required
               />
+            </div>
+          </div>
+
+          {/* Automated Lab Scheduling Live Preview Banner */}
+          <div className="p-3.5 bg-orange-500/10 border border-orange-500/20 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs font-semibold text-orange-700 dark:text-orange-300">
+            <div className="flex items-center gap-2">
+              <Clock size={16} className="text-orange-500 shrink-0" />
+              <span>Target Testing Schedule (Auto-Calculated):</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
+              <span className="bg-white dark:bg-[#0a0f1d] px-3 py-1 rounded-lg border border-orange-500/30 shadow-xs">
+                ⚡ 7-Day: <strong>{formatDateDisplay(target7DayDate)}</strong>
+              </span>
+              <span className="bg-white dark:bg-[#0a0f1d] px-3 py-1 rounded-lg border border-orange-500/30 shadow-xs">
+                🏆 28-Day: <strong>{formatDateDisplay(target28DayDate)}</strong>
+              </span>
             </div>
           </div>
 
