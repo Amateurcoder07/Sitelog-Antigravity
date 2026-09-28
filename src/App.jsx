@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
@@ -18,6 +18,7 @@ import ProjectOverview from './pages/ProjectOverview';
 import Labour from './pages/Labour';
 import Materials from './pages/Materials';
 import LabManagement from './pages/LabManagement';
+import MachineryManagement from './pages/MachineryManagement';
 import Safety from './pages/Safety';
 import Compliance from './pages/Compliance';
 import CarbonWaste from './pages/CarbonWaste';
@@ -26,7 +27,6 @@ import FolderDetail from './pages/FolderDetail';
 import Notifications from './pages/Notifications';
 import UploadPlan from './pages/EstimationAndCostingLayout';
 import ProjectPlans from './pages/EstimationAndCostingLayout';
-
 
 function App() {
   return (
@@ -47,12 +47,13 @@ function App() {
                 <Route path="/notifications" element={<Notifications />} />
               </Route>
 
-              {/* Project workspace — every route here is scoped to one project via :projectId */}
+              {/* Project workspace - every route here is scoped to one project via :projectId */}
               <Route path="/projects/:projectId" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
                 <Route index element={<ProjectOverview />} />
                 <Route path="labour" element={<Labour />} />
                 <Route path="materials" element={<Materials />} />
                 <Route path="lab-management" element={<LabManagement />} />
+                <Route path="machinery" element={<MachineryManagement />} />
                 <Route path="documents-inventory" element={<DocumentInventory />} />
                 <Route path="documents-inventory/:id" element={<FolderDetail />} />
                 <Route path="safety" element={<Safety />} />
