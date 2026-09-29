@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, Gauge, Camera, CheckCircle2 } from 'lucide-react';
+import { X, Gauge, Camera } from 'lucide-react';
 import Button from '../Button';
+import API from '../../api';
 
 export default function RecalibrateModal({ isOpen, onClose, equipment, onSave }) {
   const [newDueDate, setNewDueDate] = useState(() => {
@@ -8,30 +9,41 @@ export default function RecalibrateModal({ isOpen, onClose, equipment, onSave })
     nextYear.setFullYear(nextYear.getFullYear() + 1);
     return nextYear.toISOString().split('T')[0];
   });
-  const [photoCaptured, setPhotoCaptured] = useState(null);
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   if (!isOpen || !equipment) return null;
 
   const handlePhotoCapture = (e) => {
     const file = e.target.files[0];
     if (file) {
-      setPhotoCaptured(URL.createObjectURL(file));
+      setPhotoFile(file);
+      setPhotoPreview(URL.createObjectURL(file));
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    setSaving(true);
+    setError('');
 
-    const today = new Date().toISOString().split('T')[0];
-    const updatedEquip = {
-      ...equipment,
-      lastCalibrationDate: today,
-      nextCalibrationDue: newDueDate,
-      status: 'Active' // Set status to Active
-    };
+    const formData = new FormData();
+    formData.append('nextCalibrationDue', newDueDate);
+    if (photoFile) formData.append('photo', photoFile);
 
-    onSave(updatedEquip);
-    onClose();
+    try {
+      const res = await API.patch(`/lab-management/equipment/${equipment._id}/recalibrate`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      onSave(res.data.equipment);
+      onClose();
+    } catch (err) {
+      setError(err.response?.data?.msg || 'Could not update calibration.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -61,7 +73,7 @@ export default function RecalibrateModal({ isOpen, onClose, equipment, onSave })
 
             <label className="flex items-center justify-center gap-2 w-full min-h-[48px] p-3 bg-black/5 dark:bg-white/5 border border-dashed border-black/20 dark:border-white/20 hover:border-blue-500 rounded-xl text-xs font-bold text-black/70 dark:text-white/70 cursor-pointer transition-colors">
               <Camera size={18} className="text-blue-500" />
-              <span>{photoCaptured ? 'Sticker Captured ✓ (Tap to retake)' : 'Snap Photo of Calibration Tag'}</span>
+              <span>{photoFile ? 'Sticker Captured ✓ (Tap to retake)' : 'Snap Photo of Calibration Tag'}</span>
               <input
                 type="file"
                 accept="image/*"
@@ -71,9 +83,9 @@ export default function RecalibrateModal({ isOpen, onClose, equipment, onSave })
               />
             </label>
 
-            {photoCaptured && (
+            {photoPreview && (
               <div className="mt-2 relative w-full h-24 rounded-xl overflow-hidden border border-black/10 dark:border-white/10">
-                <img src={photoCaptured} alt="Calibration Tag" className="w-full h-full object-cover" />
+                <img src={photoPreview} alt="Calibration Tag" className="w-full h-full object-cover" />
               </div>
             )}
           </div>
@@ -91,12 +103,14 @@ export default function RecalibrateModal({ isOpen, onClose, equipment, onSave })
             />
           </div>
 
+          {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-black/10 dark:border-white/10">
             <Button variant="secondary" onClick={onClose} type="button" className="!py-3 flex-1 min-h-[48px]">
               Cancel
             </Button>
-            <Button variant="primary" type="submit" className="!py-3 flex-1 min-h-[48px]">
-              Update & Activate
+            <Button variant="primary" type="submit" disabled={saving} className="!py-3 flex-1 min-h-[48px]">
+              {saving ? 'Updating…' : 'Update & Activate'}
             </Button>
           </div>
         </form>
