@@ -1,12 +1,13 @@
-import React from 'react';
+﻿import React from 'react';
 import { NavLink, Link, useParams } from 'react-router-dom';
-import { Users, Layers, ShieldAlert, FileText, Leaf, FolderOpen, ArrowLeft, X, CalculatorIcon, FlaskConical } from 'lucide-react';
+import { Users, Layers, ShieldAlert, FileText, Leaf, FolderOpen, ArrowLeft, X, CalculatorIcon, FlaskConical, Truck } from 'lucide-react';
 import Logo from '../Logo';
 
 const navItems = [
   { name: 'Labour', path: 'labour', icon: Users },
   { name: 'Materials', path: 'materials', icon: Layers },
   { name: 'Lab Management', path: 'lab-management', icon: FlaskConical },
+  { name: 'Machinery & Fleet', path: 'machinery', icon: Truck },
   { name: 'Document Inventory', path: 'documents-inventory', icon: FolderOpen },
   { name: 'Estimation & Costings', path: 'estimation&costing', icon: CalculatorIcon },
   { name: 'Safety', path: 'safety', icon: ShieldAlert },
@@ -27,8 +28,7 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
       )}
 
       <aside
-        className={`fixed md:static top-0 left-0 bottom-0 z-50 w-60 bg-white dark:bg-black border-r border-black/10 dark:border-white/10 flex flex-col flex-shrink-0 transition-transform duration-300 ease-in-out md:translate-x-0 ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'
-          }`}
+        className="fixed md:static top-0 left-0 bottom-0 z-50 w-60 bg-white dark:bg-black border-r border-black/10 dark:border-white/10 flex flex-col flex-shrink-0 transition-transform duration-300 ease-in-out md:translate-x-0"
       >
         <div className="h-16 px-6 flex items-center justify-between border-b border-black/10 dark:border-white/10">
           <Logo />
@@ -55,15 +55,17 @@ export default function Sidebar({ isMobileOpen, onCloseMobile }) {
         <nav className="p-4 pt-1 space-y-1.5 flex-1 overflow-y-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
+            const targetPath = `/projects/${projectId || 'arconia-towers'}/${item.path}`;
             return (
               <NavLink
                 key={item.name}
-                to={`/projects/${projectId}/${item.path}`}
+                to={targetPath}
                 onClick={onCloseMobile}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${isActive
-                    ? 'bg-black dark:bg-white text-white dark:text-black font-semibold'
-                    : 'text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10'
+                  `flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
+                    isActive
+                      ? 'bg-black text-white dark:bg-white dark:text-black font-semibold shadow-sm'
+                      : 'text-black/70 dark:text-white/70 hover:bg-black/5 dark:hover:bg-white/5 hover:text-black dark:hover:text-white'
                   }`
                 }
               >
