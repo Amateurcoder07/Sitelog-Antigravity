@@ -1,34 +1,43 @@
 import React, { useState } from 'react';
 import { X, Gauge } from 'lucide-react';
 import Button from '../Button';
+import API from '../../api';
 
-export default function NewEquipmentModal({ isOpen, onClose, onSave }) {
+export default function NewEquipmentModal({ isOpen, onClose, onSave, projectId }) {
   const [name, setName] = useState('');
   const [model, setModel] = useState('');
   const [serialNo, setSerialNo] = useState('');
   const [lastCalibrationDate, setLastCalibrationDate] = useState('');
   const [nextCalibrationDue, setNextCalibrationDue] = useState('');
   const [location, setLocation] = useState('Site QC Lab Block A');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!name.trim() || !serialNo.trim()) return;
 
-    const newEquip = {
-      id: `EQ-0${Math.floor(5 + Math.random() * 10)}`,
-      name: name.trim(),
-      model: model.trim() || 'Standard QC Spec',
-      serialNo: serialNo.trim(),
-      lastCalibrationDate: lastCalibrationDate || new Date().toISOString().split('T')[0],
-      nextCalibrationDue: nextCalibrationDue || new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      status: 'Calibrated',
-      location: location.trim()
-    };
+    setSaving(true);
+    setError('');
 
-    onSave(newEquip);
-    onClose();
+    try {
+      const res = await API.post(`/lab-management/${projectId}/equipment`, {
+        name: name.trim(),
+        model: model.trim() || 'Standard QC Spec',
+        serialNo: serialNo.trim(),
+        lastCalibrationDate: lastCalibrationDate || new Date().toISOString().split('T')[0],
+        nextCalibrationDue: nextCalibrationDue || new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        location: location.trim(),
+      });
+      onSave(res.data.equipment);
+      onClose();
+    } catch (err) {
+      setError(err.response?.data?.msg || 'Could not register equipment.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -123,12 +132,14 @@ export default function NewEquipmentModal({ isOpen, onClose, onSave }) {
             />
           </div>
 
+          {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-black/10 dark:border-white/10">
             <Button variant="secondary" onClick={onClose} type="button">
               Cancel
             </Button>
-            <Button variant="primary" type="submit">
-              Register Machine
+            <Button variant="primary" type="submit" disabled={saving}>
+              {saving ? 'Registering…' : 'Register Machine'}
             </Button>
           </div>
         </form>

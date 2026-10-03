@@ -26,7 +26,7 @@ import DocumentInventory from './pages/DocumentInventory';
 import FolderDetail from './pages/FolderDetail';
 import Notifications from './pages/Notifications';
 import UploadPlan from './pages/EstimationAndCostingLayout';
-import ProjectPlans from './pages/EstimationAndCostingLayout';
+import ProjectPlans from './pages/EstimationAndCostingLayout';  
 
 function App() {
   return (
