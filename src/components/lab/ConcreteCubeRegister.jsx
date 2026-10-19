@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Button from '../Button';
 import NewCubePourModal from './NewCubePourModal';
 import {
@@ -8,8 +8,8 @@ import {
   formatDateDisplay,
   evaluateTestingStatus
 } from '../../data/mockCubeRegisterData';
+import { localToday } from '../../utils/labEvaluation';
 import {
-  Calendar,
   Layers,
   Search,
   Plus,
@@ -17,7 +17,6 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
-  FileCheck,
   ShieldCheck,
   UserCheck,
   Sparkles,
@@ -26,36 +25,76 @@ import {
   Bell,
   AlertCircle,
   Filter,
-  FileWarning
+  FileWarning,
+  Lock
 } from 'lucide-react';
 
-export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePours, showToast }) {
-  const [pours, setPours] = useState(initialPours);
+const SAVE_DELAY_MS = 700;
+
+/**
+ * Controlled register. The parent owns `pours` (loaded from the API) and passes:
+ *  - onUpdatePours(next)            optimistic state update
+ *  - onCreatePour(payload)          -> created pour | null
+ *  - onPersistReadings(pour, period) debounced save of loads/weights/dates
+ *  - onPersistDetails(pour)          debounced save of remarks / deviation reasons
+ *  - onVerifyPour(pour)              digital sign-off
+ *
+ * Only the person who registered a pour (pour.canEdit) can change its readings.
+ */
+export default function ConcreteCubeRegister({
+  pours,
+  onUpdatePours,
+  onCreatePour,
+  onPersistReadings,
+  onPersistDetails,
+  onVerifyPour,
+  showToast
+}) {
   const [testPeriod, setTestPeriod] = useState('day28'); // 'day7' | 'day28'
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [expandedMobileIds, setExpandedMobileIds] = useState({});
   const [filterActionQueue, setFilterActionQueue] = useState(false);
 
-  // Toggle mobile accordion
+  // ---- debounced persistence (typing in a load field must not fire one request per keystroke)
+  const poursRef = useRef(pours);
+  poursRef.current = pours;
+  const timers = useRef({});
+  const pending = useRef({});
+
+  const schedule = (key, fn) => {
+    clearTimeout(timers.current[key]);
+    pending.current[key] = fn;
+    timers.current[key] = setTimeout(() => {
+      const run = pending.current[key];
+      delete pending.current[key];
+      delete timers.current[key];
+      run && run();
+    }, SAVE_DELAY_MS);
+  };
+
+  // Flush anything still waiting if the user leaves the tab/page
+  useEffect(() => () => {
+    Object.keys(timers.current).forEach((k) => clearTimeout(timers.current[k]));
+    Object.values(pending.current).forEach((fn) => fn && fn());
+  }, []);
+
+  const latestPour = (pourId) => poursRef.current.find((p) => p.id === pourId);
+
   const toggleAccordion = (id) => {
-    setExpandedMobileIds((prev) => ({
-      ...prev,
-      [id]: !prev[id]
-    }));
+    setExpandedMobileIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   // Handler: Save New Pour Entry
-  const handleSaveNewPour = (newPour) => {
-    const updated = [newPour, ...pours];
-    setPours(updated);
-    if (onUpdatePours) onUpdatePours(updated);
-    if (showToast) showToast(`Concrete pour entry logged: ${newPour.id} (Set of 3 Cubes)`);
-  };
+  const handleSaveNewPour = async (payload) => onCreatePour(payload);
 
-  // Handler: Inline Cube Data Update (Weight or Crushing Load)
+  // Handler: Inline Cube Data Update (Weight, Crushing Load or Testing Date)
   const handleCubeUpdate = (pourId, cubeIndex, field, value) => {
-    const updated = pours.map((pour) => {
+    const source = latestPour(pourId);
+    if (!source || !source.canEdit) return;
+    const period = testPeriod;
+
+    const updated = poursRef.current.map((pour) => {
       if (pour.id !== pourId) return pour;
 
       const newCubes = [...pour.cubes];
@@ -65,61 +104,56 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
         targetCube.weight = parseFloat(value) || 0;
       } else if (field === 'crushingLoad') {
         const loadVal = parseFloat(value) || 0;
-        const calcStrength = calculateCompressiveStrength(loadVal);
-        const todayStr = new Date().toISOString().split('T')[0];
-
-        targetCube[testPeriod] = {
-          ...targetCube[testPeriod],
-          testingDate: loadVal > 0 ? (targetCube[testPeriod]?.testingDate || todayStr) : '',
+        targetCube[period] = {
+          ...targetCube[period],
+          testingDate: loadVal > 0 ? (targetCube[period]?.testingDate || localToday()) : '',
           crushingLoad: loadVal,
-          compressiveStrength: calcStrength
+          compressiveStrength: calculateCompressiveStrength(loadVal)
         };
+      } else if (field === 'testingDate') {
+        targetCube[period] = { ...targetCube[period], testingDate: value };
       }
 
       newCubes[cubeIndex] = targetCube;
-      return { ...pour, cubes: newCubes };
+      // Editing a reading voids the sign-off (the server does the same)
+      return { ...pour, cubes: newCubes, digitallyVerifiedBy: null };
     });
 
-    setPours(updated);
-    if (onUpdatePours) onUpdatePours(updated);
+    onUpdatePours(updated);
+    schedule(`readings:${pourId}:${period}`, () => {
+      const pour = latestPour(pourId);
+      if (pour) onPersistReadings(pour, period);
+    });
   };
 
   // Handler: Update Date Deviation Reason (The Weekend & Holiday Fail-Safe)
   const handleDeviationReasonChange = (pourId, period, reason) => {
+    const source = latestPour(pourId);
+    if (!source || !source.canEdit) return;
     const fieldKey = period === 'day7' ? 'deviationReason7Day' : 'deviationReason28Day';
-    const updated = pours.map((p) => (p.id === pourId ? { ...p, [fieldKey]: reason } : p));
-    setPours(updated);
-    if (onUpdatePours) onUpdatePours(updated);
+    onUpdatePours(poursRef.current.map((p) => (p.id === pourId ? { ...p, [fieldKey]: reason } : p)));
+    schedule(`details:${pourId}`, () => {
+      const pour = latestPour(pourId);
+      if (pour) onPersistDetails(pour);
+    });
     if (showToast) showToast(`Updated date deviation reason to "${reason}" for NABL report`);
   };
 
   // Handler: Parent Remarks Update
   const handleRemarksChange = (pourId, text) => {
-    const updated = pours.map((p) => (p.id === pourId ? { ...p, remarks: text } : p));
-    setPours(updated);
-    if (onUpdatePours) onUpdatePours(updated);
+    const source = latestPour(pourId);
+    if (!source || !source.canEdit) return;
+    onUpdatePours(poursRef.current.map((p) => (p.id === pourId ? { ...p, remarks: text } : p)));
+    schedule(`details:${pourId}`, () => {
+      const pour = latestPour(pourId);
+      if (pour) onPersistDetails(pour);
+    });
   };
 
-  // Handler: Digital Verification Sign-off
+  // Handler: Digital Verification Sign-off (stamp comes from the logged-in user on the server)
   const handleDigitalSignOff = (pourId) => {
-    const now = new Date();
-    const timeStr = now.toLocaleDateString() + ' ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    const updated = pours.map((p) => {
-      if (p.id !== pourId) return p;
-      return {
-        ...p,
-        digitallyVerifiedBy: {
-          name: 'Er. K.B. (Contractor QC) & EIL',
-          timestamp: timeStr,
-          role: 'Verified by KB (Contractor) / EIL'
-        }
-      };
-    });
-
-    setPours(updated);
-    if (onUpdatePours) onUpdatePours(updated);
-    if (showToast) showToast(`Digitally verified & stamped pour ${pourId} ✓`);
+    const pour = latestPour(pourId);
+    if (pour) onVerifyPour(pour);
   };
 
   // Compute Daily Testing Queue counts for Push Notification Banner
@@ -143,7 +177,7 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
       p.location.toLowerCase().includes(q) ||
       p.grade.toLowerCase().includes(q) ||
       p.mixDesignNo.toLowerCase().includes(q) ||
-      p.pourCardNo.toLowerCase().includes(q) ||
+      String(p.pourCardNo).toLowerCase().includes(q) ||
       p.id.toLowerCase().includes(q)
     );
 
@@ -158,6 +192,8 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
 
     return true;
   });
+
+  const inputDisabledCls = 'disabled:opacity-60 disabled:cursor-not-allowed';
 
   return (
     <div className="space-y-6">
@@ -180,9 +216,7 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
           </div>
         </div>
 
-        {/* Controls: Timeline Toggle & Add Pour */}
         <div className="flex flex-wrap items-center gap-3">
-          {/* 7-Day vs 28-Day Toggle Switch */}
           <div className="flex items-center p-1 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-xl">
             <button
               onClick={() => setTestPeriod('day7')}
@@ -219,7 +253,7 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
         </div>
       </div>
 
-      {/* 2. AUTOMATED LAB TECHNICIAN PUSH NOTIFICATION / ALERTING ENGINE BANNER */}
+      {/* 2. LAB SCHEDULING ALERT BANNER */}
       {(readyTodayCount > 0 || overdueCount > 0) && (
         <div className="p-4 bg-gradient-to-r from-orange-500/15 via-amber-500/10 to-red-500/15 border border-orange-500/30 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3 animate-fadeIn">
           <div className="flex items-start gap-3">
@@ -229,7 +263,7 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-black uppercase tracking-wider text-orange-700 dark:text-orange-300">
-                  🔬 Lab Scheduling Alert (07:00 AM Dispatch)
+                  🔬 Lab Scheduling Alert
                 </span>
                 <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-orange-500 text-white">
                   Active Notice
@@ -279,7 +313,7 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
         </div>
       </div>
 
-      {/* 4. DESKTOP VIEW (>768px): Grouped Data Grid replicating handwritten site logbook */}
+      {/* 4. DESKTOP VIEW */}
       <div className="hidden md:block bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 rounded-2xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto scrollbar-thin">
           <table className="w-full text-left border-collapse text-xs">
@@ -302,7 +336,9 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
               {filteredPours.length === 0 ? (
                 <tr>
                   <td colSpan="10" className="p-8 text-center text-black/50 dark:text-white/50">
-                    No concrete cube pour entries match your search query.
+                    {pours.length === 0
+                      ? 'No concrete pours registered yet. Use "Register New Pour" to add the first set of 3 cubes.'
+                      : 'No concrete cube pour entries match your search query.'}
                   </td>
                 </tr>
               ) : (
@@ -318,7 +354,6 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                   const actualTestingDate = pour.cubes[0]?.[testPeriod]?.testingDate || null;
                   const schedulingStatusObj = evaluateTestingStatus(pour.pourDate, periodDays, actualTestingDate, hasCompletedResults);
 
-                  // Date Deviation Check for Weekend/Holiday Fail-Safe
                   const deviationReason = testPeriod === 'day7' ? pour.deviationReason7Day : pour.deviationReason28Day;
                   let isDateDeviated = false;
                   let daysDateDiff = 0;
@@ -347,33 +382,23 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                                 : ''
                             }`}
                           >
-                            {/* Sr No */}
                             <td className="p-2.5 border-r border-black/10 dark:border-white/10 font-mono text-black/70 dark:text-white/70">
                               {cube.srNo}
                             </td>
 
-                            {/* Cube ID */}
                             <td className="p-2.5 border-r border-black/10 dark:border-white/10 font-mono font-bold text-orange-600 dark:text-orange-400">
                               {cube.cubeId}
                             </td>
 
-                            {/* Mix & Grade (Merged visually on first row) */}
                             {idx === 0 ? (
-                              <td
-                                rowSpan="3"
-                                className="p-3 border-r border-black/10 dark:border-white/10 bg-black/[0.01] dark:bg-white/[0.01] align-top"
-                              >
+                              <td rowSpan="3" className="p-3 border-r border-black/10 dark:border-white/10 bg-black/[0.01] dark:bg-white/[0.01] align-top">
                                 <span className="font-bold text-black dark:text-white block">{pour.grade}</span>
                                 <span className="text-[10px] font-mono text-black/50 dark:text-white/50">Mix: {pour.mixDesignNo}</span>
                               </td>
                             ) : null}
 
-                            {/* Date & Card # (Merged on first row) */}
                             {idx === 0 ? (
-                              <td
-                                rowSpan="3"
-                                className="p-3 border-r border-black/10 dark:border-white/10 bg-black/[0.01] dark:bg-white/[0.01] align-top space-y-1"
-                              >
+                              <td rowSpan="3" className="p-3 border-r border-black/10 dark:border-white/10 bg-black/[0.01] dark:bg-white/[0.01] align-top space-y-1">
                                 <span className="font-medium text-black dark:text-white block">{pour.pourDate}</span>
                                 <span className="text-[10px] font-semibold text-black/50 dark:text-white/50 block">Card #{pour.pourCardNo}</span>
                                 <span className="inline-block text-[10px] font-mono text-orange-600 dark:text-orange-400 font-bold bg-orange-500/10 px-1.5 py-0.5 rounded">
@@ -382,12 +407,8 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                               </td>
                             ) : null}
 
-                            {/* Location (Merged on first row) */}
                             {idx === 0 ? (
-                              <td
-                                rowSpan="3"
-                                className="p-3 border-r border-black/10 dark:border-white/10 bg-black/[0.01] dark:bg-white/[0.01] align-top font-medium text-black dark:text-white"
-                              >
+                              <td rowSpan="3" className="p-3 border-r border-black/10 dark:border-white/10 bg-black/[0.01] dark:bg-white/[0.01] align-top font-medium text-black dark:text-white">
                                 {pour.location}
                               </td>
                             ) : null}
@@ -398,29 +419,40 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                                 type="number"
                                 step="0.001"
                                 value={cube.weight || ''}
+                                disabled={!pour.canEdit}
                                 onChange={(e) => handleCubeUpdate(pour.id, idx, 'weight', e.target.value)}
-                                className="w-full px-2 py-1 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded font-mono text-xs text-black dark:text-white focus:outline-none focus:ring-1 focus:ring-orange-500"
+                                className={`w-full px-2 py-1 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded font-mono text-xs text-black dark:text-white focus:outline-none focus:ring-1 focus:ring-orange-500 ${inputDisabledCls}`}
                               />
                             </td>
 
-                            {/* Crushing Load (kN) with Empty State Target Placeholder */}
+                            {/* Crushing Load (kN) + test date */}
                             <td className="p-2 border-r border-black/10 dark:border-white/10">
                               <input
                                 type="number"
                                 step="1"
                                 value={testData.crushingLoad || ''}
+                                disabled={!pour.canEdit}
                                 onChange={(e) => handleCubeUpdate(pour.id, idx, 'crushingLoad', e.target.value)}
                                 placeholder={`Target: ${formatDateDisplay(targetDateStr)}`}
-                                className="w-full px-2 py-1 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded font-mono text-xs font-bold text-black dark:text-white placeholder:text-black/35 dark:placeholder:text-white/35 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                                className={`w-full px-2 py-1 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded font-mono text-xs font-bold text-black dark:text-white placeholder:text-black/35 dark:placeholder:text-white/35 focus:outline-none focus:ring-1 focus:ring-orange-500 ${inputDisabledCls}`}
                               />
-                              {!testData.crushingLoad && (
+                              {testData.crushingLoad > 0 ? (
+                                <input
+                                  type="date"
+                                  value={testData.testingDate || ''}
+                                  disabled={!pour.canEdit}
+                                  onChange={(e) => handleCubeUpdate(pour.id, idx, 'testingDate', e.target.value)}
+                                  title="Date the cube was crushed"
+                                  className={`mt-1 w-full px-1.5 py-0.5 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded font-mono text-[10px] text-black/70 dark:text-white/70 ${inputDisabledCls}`}
+                                />
+                              ) : (
                                 <p className="text-[9px] font-mono text-black/40 dark:text-white/40 mt-0.5">
                                   Due: {formatDateDisplay(targetDateStr)}
                                 </p>
                               )}
                             </td>
 
-                            {/* Auto-Calculated Compressive Strength (N/mm²) - Readonly Field */}
+                            {/* Auto-Calculated Compressive Strength */}
                             <td className="p-2.5 border-r border-black/10 dark:border-white/10 font-mono">
                               <div className="flex items-center justify-between">
                                 <span className={`font-black text-xs ${testData.compressiveStrength > 0 ? (isDeviated ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400') : 'text-black/30 dark:text-white/30'}`}>
@@ -435,7 +467,6 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                               )}
                             </td>
 
-                            {/* Mean Compressive Strength & Automated Status Badges */}
                             {idx === 0 ? (
                               <td
                                 rowSpan="3"
@@ -458,7 +489,6 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                                     {meanStrength > 0 ? `${meanStrength.toFixed(2)} N/mm²` : 'Pending'}
                                   </span>
 
-                                  {/* Mean Column Status Badges */}
                                   {hasDeviationWarning ? (
                                     <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-red-500/20 text-red-700 dark:text-red-300 px-2.5 py-0.5 rounded-full">
                                       <AlertTriangle size={12} /> IS 456 Warning
@@ -484,21 +514,23 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                               </td>
                             ) : null}
 
-                            {/* Remarks, Weekend/Holiday Deviation & Digital Sign-off */}
                             {idx === 0 ? (
-                              <td
-                                rowSpan="3"
-                                className="p-3 align-top bg-black/[0.01] dark:bg-white/[0.01] space-y-2.5"
-                              >
+                              <td rowSpan="3" className="p-3 align-top bg-black/[0.01] dark:bg-white/[0.01] space-y-2.5">
+                                {!pour.canEdit && (
+                                  <p className="flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                                    <Lock size={11} /> Read-only · registered by {pour.registeredBy || 'another user'}
+                                  </p>
+                                )}
+
                                 <input
                                   type="text"
                                   value={pour.remarks || ''}
+                                  disabled={!pour.canEdit}
                                   onChange={(e) => handleRemarksChange(pour.id, e.target.value)}
                                   placeholder="Add site remarks..."
-                                  className="w-full px-2.5 py-1.5 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-lg text-xs text-black dark:text-white focus:outline-none focus:ring-1 focus:ring-orange-500"
+                                  className={`w-full px-2.5 py-1.5 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-lg text-xs text-black dark:text-white focus:outline-none focus:ring-1 focus:ring-orange-500 ${inputDisabledCls}`}
                                 />
 
-                                {/* The "Weekend & Holiday" Fail-Safe Deviation Selector */}
                                 {isDateDeviated && (
                                   <div className="p-2 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-1">
                                     <div className="flex items-center justify-between text-[10px] font-bold text-amber-700 dark:text-amber-300">
@@ -508,8 +540,9 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                                     </div>
                                     <select
                                       value={deviationReason || ''}
+                                      disabled={!pour.canEdit}
                                       onChange={(e) => handleDeviationReasonChange(pour.id, testPeriod, e.target.value)}
-                                      className="w-full px-2 py-1 bg-white dark:bg-[#0a0f1d] border border-amber-500/30 rounded text-[11px] font-semibold text-black dark:text-white focus:outline-none"
+                                      className={`w-full px-2 py-1 bg-white dark:bg-[#0a0f1d] border border-amber-500/30 rounded text-[11px] font-semibold text-black dark:text-white focus:outline-none ${inputDisabledCls}`}
                                     >
                                       <option value="">Select Reason for Deviation...</option>
                                       <option value="Weekend/Holiday">Weekend / Site Holiday</option>
@@ -559,11 +592,11 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
         </div>
       </div>
 
-      {/* 5. MOBILE VIEW (<=768px): Expandable Card Accordion (PWA Optimized) */}
+      {/* 5. MOBILE VIEW */}
       <div className="block md:hidden space-y-4">
         {filteredPours.length === 0 ? (
           <div className="p-8 bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 rounded-2xl text-center text-black/50 dark:text-white/50 text-xs">
-            No concrete cube pours found.
+            {pours.length === 0 ? 'No concrete pours registered yet.' : 'No concrete cube pours found.'}
           </div>
         ) : (
           filteredPours.map((pour) => {
@@ -601,16 +634,13 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                     : 'border-black/10 dark:border-white/10'
                 }`}
               >
-                {/* Parent Card Header */}
                 <div
                   onClick={() => toggleAccordion(pour.id)}
                   className="p-4 flex items-center justify-between gap-3 cursor-pointer bg-black/5 dark:bg-white/5 active:bg-black/10 dark:active:bg-white/10 transition-colors"
                 >
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-black text-black dark:text-white">
-                        {pour.location}
-                      </span>
+                      <span className="text-xs font-black text-black dark:text-white">{pour.location}</span>
                       <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400">
                         {pour.grade}
                       </span>
@@ -625,9 +655,7 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
 
                   <div className="flex items-center gap-2">
                     <div className="text-right">
-                      <span className="text-[10px] uppercase font-bold text-black/40 dark:text-white/40 block">
-                        Mean Str
-                      </span>
+                      <span className="text-[10px] uppercase font-bold text-black/40 dark:text-white/40 block">Mean Str</span>
                       <span className={`text-xs font-black font-mono ${meanStrength > 0 ? (hasDeviationWarning ? 'text-red-600' : 'text-emerald-600') : 'text-black/40'}`}>
                         {meanStrength > 0 ? `${meanStrength.toFixed(1)} N/mm²` : 'Pending'}
                       </span>
@@ -639,11 +667,8 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                   </div>
                 </div>
 
-                {/* Status Badge Ribbon */}
                 <div className="px-4 py-2 border-t border-b border-black/5 dark:border-white/5 flex items-center justify-between text-[11px]">
-                  <span className="text-black/60 dark:text-white/60 font-mono">
-                    Pour Date: {pour.pourDate}
-                  </span>
+                  <span className="text-black/60 dark:text-white/60 font-mono">Pour Date: {pour.pourDate}</span>
 
                   {hasDeviationWarning ? (
                     <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 dark:text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">
@@ -668,17 +693,21 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                   )}
                 </div>
 
-                {/* Expandable Accordion Content */}
                 {isExpanded && (
                   <div className="p-4 space-y-4 animate-fadeIn">
+                    {!pour.canEdit && (
+                      <p className="flex items-center gap-1.5 text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl p-2.5">
+                        <Lock size={13} /> Read-only · registered by {pour.registeredBy || 'another user'}
+                      </p>
+                    )}
+
                     <div className="flex items-center justify-between text-xs font-bold text-black/70 dark:text-white/70">
-                      <span>Enter 3 Cube Test Data:</span>
+                      <span>{pour.canEdit ? 'Enter 3 Cube Test Data:' : '3 Cube Test Data:'}</span>
                       <span className="text-[10px] text-orange-600 dark:text-orange-400 font-mono">
                         Target Date: {formatDateDisplay(targetDateStr)}
                       </span>
                     </div>
 
-                    {/* 3 Child Cube Touch Cards */}
                     <div className="space-y-3">
                       {pour.cubes.map((cube, idx) => {
                         const testData = cube[testPeriod] || {};
@@ -708,33 +737,44 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
 
                             <div className="grid grid-cols-2 gap-3">
                               <div>
-                                <label className="block text-[10px] font-bold uppercase text-black/50 dark:text-white/50 mb-1">
-                                  Weight (kg)
-                                </label>
+                                <label className="block text-[10px] font-bold uppercase text-black/50 dark:text-white/50 mb-1">Weight (kg)</label>
                                 <input
                                   type="number"
                                   step="0.001"
                                   value={cube.weight || ''}
+                                  disabled={!pour.canEdit}
                                   onChange={(e) => handleCubeUpdate(pour.id, idx, 'weight', e.target.value)}
                                   placeholder="e.g. 8.774"
-                                  className="w-full px-3 py-2 bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 rounded-xl text-xs font-mono font-bold text-black dark:text-white"
+                                  className={`w-full px-3 py-2 bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 rounded-xl text-xs font-mono font-bold text-black dark:text-white ${inputDisabledCls}`}
                                 />
                               </div>
 
                               <div>
-                                <label className="block text-[10px] font-bold uppercase text-black/50 dark:text-white/50 mb-1">
-                                  Crushing Load (kN)
-                                </label>
+                                <label className="block text-[10px] font-bold uppercase text-black/50 dark:text-white/50 mb-1">Crushing Load (kN)</label>
                                 <input
                                   type="number"
                                   step="1"
                                   value={testData.crushingLoad || ''}
+                                  disabled={!pour.canEdit}
                                   onChange={(e) => handleCubeUpdate(pour.id, idx, 'crushingLoad', e.target.value)}
                                   placeholder={`Target: ${formatDateDisplay(targetDateStr)}`}
-                                  className="w-full px-3 py-2 bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 rounded-xl text-xs font-mono font-bold text-black dark:text-white placeholder:text-black/35"
+                                  className={`w-full px-3 py-2 bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 rounded-xl text-xs font-mono font-bold text-black dark:text-white placeholder:text-black/35 ${inputDisabledCls}`}
                                 />
                               </div>
                             </div>
+
+                            {testData.crushingLoad > 0 && (
+                              <div>
+                                <label className="block text-[10px] font-bold uppercase text-black/50 dark:text-white/50 mb-1">Tested On</label>
+                                <input
+                                  type="date"
+                                  value={testData.testingDate || ''}
+                                  disabled={!pour.canEdit}
+                                  onChange={(e) => handleCubeUpdate(pour.id, idx, 'testingDate', e.target.value)}
+                                  className={`w-full px-3 py-2 bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 rounded-xl text-xs font-mono text-black dark:text-white ${inputDisabledCls}`}
+                                />
+                              </div>
+                            )}
 
                             {isDeviated && (
                               <p className="text-[10px] font-bold text-red-600 dark:text-red-400 bg-red-500/10 p-1.5 rounded-lg flex items-center gap-1">
@@ -746,13 +786,10 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                       })}
                     </div>
 
-                    {/* Bottom Mean Display & Sign-off on Mobile Card */}
                     <div className="p-3.5 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-xl space-y-3">
                       <div className="flex items-center justify-between">
                         <div>
-                          <span className="text-[10px] uppercase font-bold text-black/50 dark:text-white/50 block">
-                            Calculated Mean Strength
-                          </span>
+                          <span className="text-[10px] uppercase font-bold text-black/50 dark:text-white/50 block">Calculated Mean Strength</span>
                           <span className="text-base font-black font-mono text-black dark:text-white">
                             {meanStrength > 0 ? `${meanStrength.toFixed(2)} N/mm²` : 'Pending'}
                           </span>
@@ -769,7 +806,6 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                         ) : null}
                       </div>
 
-                      {/* Weekend/Holiday Fail-Safe Selector on Mobile */}
                       {isDateDeviated && (
                         <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-1 text-xs">
                           <label className="block text-[10px] font-bold text-amber-700 dark:text-amber-300">
@@ -777,8 +813,9 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                           </label>
                           <select
                             value={deviationReason || ''}
+                            disabled={!pour.canEdit}
                             onChange={(e) => handleDeviationReasonChange(pour.id, testPeriod, e.target.value)}
-                            className="w-full px-2.5 py-1.5 bg-white dark:bg-[#0a0f1d] border border-amber-500/30 rounded-lg text-xs font-semibold text-black dark:text-white"
+                            className={`w-full px-2.5 py-1.5 bg-white dark:bg-[#0a0f1d] border border-amber-500/30 rounded-lg text-xs font-semibold text-black dark:text-white ${inputDisabledCls}`}
                           >
                             <option value="">Select Reason...</option>
                             <option value="Weekend/Holiday">Weekend / Site Holiday</option>
@@ -789,16 +826,15 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
                         </div>
                       )}
 
-                      {/* Remarks */}
                       <input
                         type="text"
                         value={pour.remarks || ''}
+                        disabled={!pour.canEdit}
                         onChange={(e) => handleRemarksChange(pour.id, e.target.value)}
                         placeholder="Site remarks..."
-                        className="w-full px-3 py-2 bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 rounded-xl text-xs text-black dark:text-white"
+                        className={`w-full px-3 py-2 bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 rounded-xl text-xs text-black dark:text-white ${inputDisabledCls}`}
                       />
 
-                      {/* Digital Sign-off Button */}
                       <div>
                         {pour.digitallyVerifiedBy ? (
                           <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-semibold">
@@ -828,11 +864,11 @@ export default function ConcreteCubeRegister({ pours: initialPours, onUpdatePour
         )}
       </div>
 
-      {/* Modal: New Cube Pour Entry */}
       <NewCubePourModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveNewPour}
+        pours={pours}
       />
     </div>
   );

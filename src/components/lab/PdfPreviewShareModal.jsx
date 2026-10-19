@@ -55,12 +55,7 @@ export default function PdfPreviewShareModal({ isOpen, onClose, cert, onShareWha
         </div>
 
         <div className="space-y-2.5">
-          <a
-            href={cert.cloudinaryUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="w-full inline-flex items-center justify-center gap-2 py-3 bg-black dark:bg-white text-white dark:text-black font-semibold text-sm rounded-md shadow-md hover:opacity-90 active:scale-95 transition-all min-h-[48px]"
-          >
+          <Button variant="primary" onClick={() => window.open(cert.cloudinaryUrl, '_blank', 'noopener')} className="w-full !py-3 gap-2 min-h-[48px]">
             <Download size={18} /> Download Official PDF
           </a>
 

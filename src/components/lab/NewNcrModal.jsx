@@ -11,17 +11,22 @@ const ACTION_PLAN_CHIPS = [
   "Structural Consultant Approval Pending"
 ];
 
-export default function NewNcrModal({ isOpen, onClose, onSave, projectId, samples = [], prefilledData = null }) {
-  const [selectedSampleId, setSelectedSampleId] = useState(samples[0]?._id || '');
+const TEAM_MEMBERS = [
+  "Er. Rajesh Kumar (Structural Consultant)",
+  "Amit Patel (Site Quality Engineer)",
+  "Priya Verma (QC Technician)",
+  "Ramesh Sharma (Site Supervisor)"
+];
+
+export default function NewNcrModal({ isOpen, onClose, onSave, samples = [], prefilledData = null, assignees = [] }) {
+  const [selectedSampleId, setSelectedSampleId] = useState(samples[0]?.id || '');
   const [severity, setSeverity] = useState('High');
   const [title, setTitle] = useState('');
   const [correctiveAction, setCorrectiveAction] = useState('');
-  const [assignedTo, setAssignedTo] = useState('');
-  const [engineers, setEngineers] = useState([]);
-  const [loadingEngineers, setLoadingEngineers] = useState(true);
-  const [evidencePhotos, setEvidencePhotos] = useState([]); // { id, file, url, gpsWatermark }
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const team = assignees.length ? assignees : TEAM_MEMBERS;
+  const [assignedTo, setAssignedTo] = useState(team[0]);
+  useEffect(() => { if (!team.includes(assignedTo)) setAssignedTo(team[0]); }, [team.join('|')]); // eslint-disable-line
+  const [evidencePhotos, setEvidencePhotos] = useState([]);
 
   const activeSample = samples.find((s) => s._id === selectedSampleId) || samples[0];
 
@@ -230,16 +235,11 @@ export default function NewNcrModal({ isOpen, onClose, onSave, projectId, sample
               disabled={loadingEngineers || engineers.length === 0}
               className="w-full px-3.5 py-2.5 text-xs font-bold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500 min-h-[44px] disabled:opacity-50"
             >
-              {loadingEngineers && <option>Loading engineers…</option>}
-              {!loadingEngineers && engineers.length === 0 && <option>No engineers found on this project</option>}
-              {engineers.map((eng) => {
-                const label = eng.specialization ? `${eng.name} — ${eng.specialization}` : `${eng.name} (Engineer)`;
-                return (
-                  <option key={eng._id} value={eng.name} className="bg-white dark:bg-[#0a0f1d]">
-                    {label}
-                  </option>
-                );
-              })}
+              {team.map((member) => (
+                <option key={member} value={member} className="bg-white dark:bg-[#0a0f1d]">
+                  {member}
+                </option>
+              ))}
             </select>
             {!loadingEngineers && engineers.length === 0 && (
               <p className="text-[11px] text-black/40 dark:text-white/40 mt-1">

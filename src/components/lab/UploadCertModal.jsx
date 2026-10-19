@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { X, FileCheck, Upload } from 'lucide-react';
 import Button from '../Button';
-import API from '../../api';
+import { useEffect } from 'react';
 
 export default function UploadCertModal({ isOpen, onClose, onSave, projectId, samples = [] }) {
   const [title, setTitle] = useState('');
-  const [sampleId, setSampleId] = useState(samples[0]?._id || '');
+  const [sampleId, setSampleId] = useState(samples[0]?.id || '')
   const [nablLabName, setNablLabName] = useState('National Quality Assurance Lab (NABL)');
   const [approvalStatus, setApprovalStatus] = useState('Approved');
   const [file, setFile] = useState(null);
@@ -13,10 +13,17 @@ export default function UploadCertModal({ isOpen, onClose, onSave, projectId, sa
   const [error, setError] = useState('');
 
   if (!isOpen) return null;
+  useEffect(() => { if (!sampleId && samples[0]) setSampleId(samples[0].id); }, [samples]);
 
   const handleFileChange = (e) => {
-    const f = e.target.files[0];
-    if (f) setFile(f);
+    const file = e.target.files[0];
+    if (file) {
+      setFileUploaded({
+        name: file.name,
+        size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+        file
+      });
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -34,24 +41,23 @@ export default function UploadCertModal({ isOpen, onClose, onSave, projectId, sa
     setSaving(true);
     setError('');
 
-    const formData = new FormData();
-    formData.append('title', title.trim());
-    formData.append('sample', sampleId);
-    formData.append('nablLabName', nablLabName.trim());
-    formData.append('approvalStatus', approvalStatus);
-    formData.append('file', file);
+    const selectedSample = samples.find((s) => s.id === sampleId);
 
-    try {
-      const res = await API.post(`/lab-management/${projectId}/certificates`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      onSave(res.data.certificate);
-      onClose();
-    } catch (err) {
-      setError(err.response?.data?.msg || 'Could not upload certificate.');
-    } finally {
-      setSaving(false);
-    }
+    const newCert = {
+      id: `CERT-${Math.floor(8000 + Math.random() * 1000)}`,
+      title: title.trim(),
+      nablLabName: nablLabName.trim(),
+      issueDate: new Date().toISOString().split('T')[0],
+      sampleId,
+      materialCategory: selectedSample?.materialCategory || 'Concrete',
+      approvalStatus,
+      fileType: 'PDF',
+      fileSize: fileUploaded?.size || '1.8 MB',
+      file: fileUploaded?.file,
+    };
+
+    onSave(newCert);
+    onClose();
   };
 
   return (

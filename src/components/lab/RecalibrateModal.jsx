@@ -9,18 +9,16 @@ export default function RecalibrateModal({ isOpen, onClose, equipment, onSave })
     nextYear.setFullYear(nextYear.getFullYear() + 1);
     return nextYear.toISOString().split('T')[0];
   });
+  const [photoCaptured, setPhotoCaptured] = useState(null);
   const [photoFile, setPhotoFile] = useState(null);
-  const [photoPreview, setPhotoPreview] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
 
   if (!isOpen || !equipment) return null;
 
   const handlePhotoCapture = (e) => {
     const file = e.target.files[0];
     if (file) {
+      setPhotoCaptured(URL.createObjectURL(file));
       setPhotoFile(file);
-      setPhotoPreview(URL.createObjectURL(file));
     }
   };
 
@@ -29,9 +27,14 @@ export default function RecalibrateModal({ isOpen, onClose, equipment, onSave })
     setSaving(true);
     setError('');
 
-    const formData = new FormData();
-    formData.append('nextCalibrationDue', newDueDate);
-    if (photoFile) formData.append('photo', photoFile);
+    const today = new Date().toISOString().split('T')[0];
+    const updatedEquip = {
+      ...equipment,
+      photoFile,
+      lastCalibrationDate: today,
+      nextCalibrationDue: newDueDate,
+      status: 'Active' // Set status to Active
+    };
 
     try {
       const res = await API.patch(`/lab-management/equipment/${equipment._id}/recalibrate`, formData, {
