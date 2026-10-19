@@ -75,7 +75,9 @@ export default function RecordResultModal({ isOpen, onClose, sample, standards, 
 
   const [saving, setSaving] = useState(false);
 
-  if (!isOpen || !sample) return null;
+  const updateReading = (idx, val) => {
+    setReadings((prev) => prev.map((r, i) => (i === idx ? val : r)));
+  };
 
   // ---------- previews ----------
   const grade = sample.grade;
@@ -178,12 +180,12 @@ export default function RecordResultModal({ isOpen, onClose, sample, standards, 
       <div className="relative w-full max-w-lg bg-white dark:bg-[#0a0f1d] border border-black/15 dark:border-white/15 rounded-3xl p-5 md:p-6 shadow-2xl z-10 my-6 max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between pb-3 border-b border-black/10 dark:border-white/10 mb-4">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400">
-              <Calculator size={20} />
+            <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
+              <ClipboardCheck size={22} />
             </div>
             <div>
-              <h2 className="text-base md:text-lg font-bold text-black dark:text-white">Step 2: Record Test Result</h2>
-              <p className="text-xs text-black/50 dark:text-white/50">{sample.id} — {category} Result Entry</p>
+              <h2 className="text-base md:text-lg font-bold text-black dark:text-white">Record Test Reading</h2>
+              <p className="text-xs text-black/50 dark:text-white/50">{sample.code} — {sample.sampleName}</p>
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-black/40 dark:text-white/40 hover:text-black dark:hover:text-white transition-colors cursor-pointer">
@@ -395,7 +397,6 @@ export default function RecordResultModal({ isOpen, onClose, sample, standards, 
                 </div>
               )}
             </div>
-          )}
 
           {/* ===================== READING HISTORY ===================== */}
           {history.length > 0 && (

@@ -172,15 +172,15 @@ export default function NewSampleModal({ isOpen, onClose, onSave, standards }) {
 
         <div className="flex items-center justify-between pb-3 border-b border-black/10 dark:border-white/10 mb-4">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400">
-              <FlaskConical size={20} />
+            <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <FlaskConical size={22} />
             </div>
             <div>
               <h2 className="text-base md:text-lg font-bold text-black dark:text-white">Step 1: Register New Sample</h2>
               <p className="text-xs text-black/50 dark:text-white/50">Conditional entry for {CATEGORY_LABELS[materialCategory]}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-black/40 dark:text-white/40 hover:text-black dark:hover:text-white transition-colors cursor-pointer">
+          <button onClick={resetAndClose} className="p-1.5 rounded-lg text-black/40 dark:text-white/40 hover:text-black dark:hover:text-white transition-colors cursor-pointer">
             <X size={20} />
           </button>
         </div>
@@ -293,7 +293,39 @@ export default function NewSampleModal({ isOpen, onClose, onSave, standards }) {
                 <label className={labelCls}>Structural Location / Usage Area</label>
                 <input type="text" required placeholder="e.g. Tower A - Floor 3 (Column C4 Main Steel)" value={steelLocation} onChange={(e) => setSteelLocation(e.target.value)} className={fieldCls} />
               </div>
-            </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-black/70 dark:text-white/70 mb-1">Usage</label>
+                  <select
+                    value={aggregateUsage}
+                    onChange={(e) => setAggregateUsage(e.target.value)}
+                    className="w-full px-3 py-2.5 text-xs font-bold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 min-h-[44px]"
+                  >
+                    {AGGREGATE_USAGE_TYPES.map((u) => <option key={u} value={u} className="bg-white dark:bg-[#0a0f1d]">{u}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-black/70 dark:text-white/70 mb-1">Quarry Source</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Karjat Quarry"
+                    value={quarrySource}
+                    onChange={(e) => setQuarrySource(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-xs font-bold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 min-h-[44px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-black/70 dark:text-white/70 mb-1">Truck / Challan No.</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. MH-04-AB-1234"
+                    value={truckNo}
+                    onChange={(e) => setTruckNo(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-xs font-bold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 min-h-[44px]"
+                  />
+                </div>
+              </div>
+            </>
           )}
 
           {/* ============ AGGREGATE ============ */}
@@ -357,7 +389,7 @@ export default function NewSampleModal({ isOpen, onClose, onSave, standards }) {
               <label className={labelCls}>Scheduled Testing Date</label>
               <input type="date" value={testDate} onChange={(e) => setTestDate(e.target.value)} className={fieldCls} />
             </div>
-          )}
+          </div>
 
           {/* Camera upload */}
           <div>
@@ -378,7 +410,7 @@ export default function NewSampleModal({ isOpen, onClose, onSave, standards }) {
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-black/10 dark:border-white/10">
-            <Button variant="secondary" onClick={onClose} type="button" className="!py-3 flex-1 min-h-[48px]">
+            <Button variant="secondary" onClick={resetAndClose} type="button" className="!py-3 flex-1 min-h-[48px]">
               Cancel
             </Button>
             <button

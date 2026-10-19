@@ -4,10 +4,10 @@ import { useToast } from '../context/ToastContext';
 import * as labService from '../services/labService';
 import Button from '../components/Button';
 import NewSampleModal from '../components/lab/NewSampleModal';
+import RecordResultModal from '../components/lab/RecordResultModal';
+import SampleHistoryModal from '../components/lab/SampleHistoryModal';
 import NewNcrModal from '../components/lab/NewNcrModal';
 import NewEquipmentModal from '../components/lab/NewEquipmentModal';
-import QrScanModal from '../components/lab/QrScanModal';
-import RecordResultModal from '../components/lab/RecordResultModal';
 import RecalibrateModal from '../components/lab/RecalibrateModal';
 import UploadCertModal from '../components/lab/UploadCertModal';
 import PdfPreviewShareModal from '../components/lab/PdfPreviewShareModal';
@@ -404,7 +404,14 @@ export default function LabManagement() {
       s.structureLocation.toLowerCase().includes(q) ||
       s.gradeBadge.toLowerCase().includes(q);
 
-    if (!matchesSearch) return false;
+function EmptyState({ icon: Icon, text }) {
+  return (
+    <div className="text-center py-14 border border-dashed border-black/15 dark:border-white/15 rounded-xl">
+      <Icon className="mx-auto text-black/20 dark:text-white/20 mb-3" size={30} />
+      <p className="text-sm text-black/50 dark:text-white/50 max-w-sm mx-auto">{text}</p>
+    </div>
+  );
+}
 
     if (activeChip === 'All') return true;
     if (activeChip === 'Due Today') return s.status === 'Due Today';
@@ -413,8 +420,69 @@ export default function LabManagement() {
     if (activeChip === 'Aggregates') return s.materialCategory === 'Aggregate';
     if (activeChip === 'Failed / NCR') return s.status === 'Fail' || s.status === 'Retest Required';
 
-    return true;
-  });
+      {samples.length === 0 ? (
+        <EmptyState icon={FlaskConical} text="No samples registered yet. Cast a sample to begin the IS testing workflow." />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {samples.map((s) => {
+            const st = SAMPLE_STATUS_STYLE[s.status] || SAMPLE_STATUS_STYLE.Curing;
+            const StatusIcon = st.icon;
+            const canRecord = ['Curing', 'Due Today', 'Retest Required'].includes(s.status);
+            const hasHistory = (s.resultData?.history || []).length > 0;
+            return (
+              <div key={s._id} className="bg-white dark:bg-[#0a0a0a] border border-black/10 dark:border-white/10 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="font-mono text-xs font-bold text-black/60 dark:text-white/60">{s.code}</span>
+                  <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${st.className}`}>
+                    <StatusIcon size={11} /> {st.label}
+                  </span>
+                </div>
+                <h3 className="text-black dark:text-white font-semibold text-sm mb-1">{s.sampleName}</h3>
+                <p className="text-black/40 dark:text-white/40 text-xs mb-2">{s.materialCategory} • {s.structureLocation}</p>
+                {s.grade && (
+                  <p className="text-black/50 dark:text-white/50 text-xs mb-1">
+                    Grade: <span className="font-semibold text-black dark:text-white">{s.grade}</span>
+                  </p>
+                )}
+                <p className="text-black/50 dark:text-white/50 text-xs mb-1">Target: {s.targetStrength || '—'}</p>
+                <p className="text-black/50 dark:text-white/50 text-xs mb-1">Achieved: {s.achievedStrength || 'Pending Test'}</p>
+                <p className="text-black/30 dark:text-white/30 text-[11px] mb-3">{s.standardCode}</p>
+                <p className="text-black/40 dark:text-white/40 text-[11px] mb-4">{s.ageStatus}</p>
+
+                <div className="flex items-center gap-2">
+                  {canRecord && (
+                    <button
+                      onClick={() => onRecord(s)}
+                      className="flex-1 text-xs font-semibold px-3 py-2 rounded-lg bg-black dark:bg-white text-white dark:text-black hover:opacity-90 transition-opacity cursor-pointer"
+                    >
+                      Add Reading
+                    </button>
+                  )}
+                  {s.status === 'Fail' && (
+                    <button
+                      onClick={() => onRaiseNcr(s)}
+                      className="flex-1 text-xs font-semibold px-3 py-2 rounded-lg border border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                    >
+                      Raise NCR
+                    </button>
+                  )}
+                  <button
+                    onClick={() => onViewHistory(s)}
+                    disabled={!hasHistory}
+                    title={hasHistory ? 'View reading history' : 'No readings recorded yet'}
+                    className="flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border border-black/15 dark:border-white/15 text-black/70 dark:text-white/70 hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <History size={13} /> History
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
   const recordLabel = (sample) => (sample.canEdit ? 'Record Result' : 'View Readings');
 
@@ -450,27 +518,33 @@ export default function LabManagement() {
   }
 
   return (
-    <div className="space-y-6 pb-28 md:pb-12">
-      {/* Top Header Banner */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 p-5 md:p-6 rounded-2xl shadow-sm">
-        <div className="flex items-start gap-4">
-          <div className="p-3.5 rounded-2xl bg-orange-500/10 text-orange-600 dark:text-orange-400 mt-0.5 flex-shrink-0">
-            <FlaskConical size={28} />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl md:text-2xl font-black text-black dark:text-white tracking-tight">
-                Lab Management & Quality Control
-              </h1>
-              <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400">
-                PWA Ready
-              </span>
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-black/50 dark:text-white/50">{ncrs.length} NCR{ncrs.length === 1 ? '' : 's'} raised</p>
+        <button onClick={onNew} className="flex items-center gap-2 bg-red-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg hover:opacity-90 transition-opacity cursor-pointer">
+          <Plus size={15} /> Raise NCR
+        </button>
+      </div>
+      {ncrs.length === 0 ? (
+        <EmptyState icon={ShieldAlert} text="No non-conformances raised. Failed samples can be escalated directly from the Sample Testing tab." />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {ncrs.map((n) => (
+            <div key={n._id} className="bg-white dark:bg-[#0a0a0a] border border-black/10 dark:border-white/10 rounded-xl p-5">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-mono text-xs font-bold text-black/60 dark:text-white/60">{n.code}</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${NCR_STATUS_STYLE[n.status] || ''}`}>{n.status}</span>
+              </div>
+              <h3 className="text-black dark:text-white font-semibold text-sm mb-1">{n.title}</h3>
+              <p className="text-black/50 dark:text-white/50 text-xs mb-2">Severity: <span className="font-semibold">{n.severity}</span> • Assigned to {n.assignedTo}</p>
+              <p className="text-black/40 dark:text-white/40 text-xs">{n.correctiveAction}</p>
             </div>
-            <p className="text-xs md:text-sm text-black/60 dark:text-white/60 mt-1 max-w-2xl">
-              Track site specimen strength tests, cube 7-day/28-day ratios, NCR logs & equipment calibration.
-            </p>
-          </div>
+          ))}
         </div>
+      )}
+    </div>
+  );
+}
 
         <div className="hidden md:flex flex-wrap items-center gap-2.5">
           <Button variant="outline" onClick={handleExport} className="!text-xs gap-2 min-h-[44px]">
@@ -500,17 +574,44 @@ export default function LabManagement() {
             Across {summary.categoryCount} material categor{summary.categoryCount === 1 ? 'y' : 'ies'}
           </p>
         </div>
+      )}
+    </div>
+  );
+}
 
-        <div className="snap-start flex-shrink-0 w-64 md:w-auto bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 p-4 rounded-2xl shadow-sm">
-          <div className="flex items-center justify-between text-black/50 dark:text-white/50 mb-2">
-            <span className="text-xs font-semibold">QC Pass Rate</span>
-            <CheckCircle2 size={16} className="text-emerald-500" />
-          </div>
-          <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
-            {isLoading ? '...' : `${summary.passRatePercentage}%`}
-          </p>
-          <p className="text-[11px] font-medium text-emerald-600/70 dark:text-emerald-400/70 mt-1">Target IS compliance met</p>
+function CertificatesTab({ certificates, onNew, onPreview }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-black/50 dark:text-white/50">{certificates.length} certificate{certificates.length === 1 ? '' : 's'} on file</p>
+        <button onClick={onNew} className="flex items-center gap-2 bg-orange-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg hover:opacity-90 transition-opacity cursor-pointer">
+          <Plus size={15} /> Upload Certificate
+        </button>
+      </div>
+      {certificates.length === 0 ? (
+        <EmptyState icon={FileCheck} text="No NABL certificates uploaded yet." />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {certificates.map((c) => (
+            <button
+              key={c._id}
+              onClick={() => onPreview({ ...c, id: c.code, sampleId: c.sample })}
+              className="text-left bg-white dark:bg-[#0a0a0a] border border-black/10 dark:border-white/10 rounded-xl p-5 hover:border-black/30 dark:hover:border-white/30 transition-colors cursor-pointer"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-mono text-xs font-bold text-black/60 dark:text-white/60">{c.code}</span>
+                <Eye size={14} className="text-black/30 dark:text-white/30" />
+              </div>
+              <h3 className="text-black dark:text-white font-semibold text-sm mb-1">{c.title}</h3>
+              <p className="text-black/40 dark:text-white/40 text-xs">{c.nablLabName}</p>
+              <p className="text-black/30 dark:text-white/30 text-[11px] mt-1">{new Date(c.issueDate).toLocaleDateString('en-IN')}</p>
+            </button>
+          ))}
         </div>
+      )}
+    </div>
+  );
+}
 
         <div className="snap-start flex-shrink-0 w-64 md:w-auto bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 p-4 rounded-2xl shadow-sm">
           <div className="flex items-center justify-between text-black/50 dark:text-white/50 mb-2">
@@ -1083,14 +1184,15 @@ export default function LabManagement() {
           <span className="whitespace-nowrap">Scan ID / QR</span>
         </button>
 
-        <button
-          onClick={() => setIsSampleModalOpen(true)}
-          className="flex-1 min-h-[48px] px-4 py-3 bg-orange-600 hover:bg-orange-700 text-white font-extrabold text-xs rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer active:scale-95 transition-all"
-        >
-          <Plus size={18} />
-          <span>+ Log Sample</span>
-        </button>
-      </div>
+      {previewingCert && (
+        <PdfPreviewShareModal
+          isOpen={!!previewingCert}
+          cert={previewingCert}
+          onClose={() => setPreviewingCert(null)}
+          onShareWhatsApp={(cert) => window.open(`https://wa.me/?text=${encodeURIComponent(`${cert.title} — ${cert.cloudinaryUrl}`)}`, '_blank')}
+          onShareEmail={(cert) => window.open(`mailto:?subject=${encodeURIComponent(cert.title)}&body=${encodeURIComponent(cert.cloudinaryUrl)}`, '_blank')}
+        />
+      )}
 
       {/* Modals */}
       <NewSampleModal
