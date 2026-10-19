@@ -58,7 +58,7 @@ export default function PdfPreviewShareModal({ isOpen, onClose, cert, onShareWha
 
         {/* Action Buttons: Download PDF, Share via WhatsApp, Share via Email */}
         <div className="space-y-2.5">
-          <Button variant="primary" onClick={() => alert(`Downloading ${cert.title}.pdf`)} className="w-full !py-3 gap-2 min-h-[48px]">
+          <Button variant="primary" onClick={() => window.open(cert.cloudinaryUrl, '_blank', 'noopener')} className="w-full !py-3 gap-2 min-h-[48px]">
             <Download size={18} /> Download Official PDF
           </Button>
 

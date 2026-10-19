@@ -1,254 +1,251 @@
 import React, { useState } from 'react';
-import { 
-  Search, 
-  Filter, 
-  MapPin, 
-  Building2, 
-  Clock, 
-  Fuel, 
-  AlertTriangle, 
-  ChevronRight, 
-  FileText,
-  Activity,
-  Plus,
-  CheckCircle2
-} from 'lucide-react';
+import { Search, MapPin, Building2, Clock, Fuel, AlertTriangle, Plus, Truck } from 'lucide-react';
 
-export default function DeploymentMatrixTable({ 
-  fleetData = [], 
-  onSelectMachine, 
-  onLogHours, 
-  onLogFuel, 
-  onReportIssue 
+export const STATUS_META = {
+  PRODUCTIVE: {
+    label: 'Productive',
+    cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+    dot: 'bg-emerald-500 animate-pulse',
+  },
+  IDLE: {
+    label: 'Idle (Engine On)',
+    cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
+    dot: 'bg-amber-500',
+  },
+  STANDBY: {
+    label: 'Standby (Engine Off)',
+    cls: 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20',
+    dot: 'bg-slate-400',
+  },
+  BREAKDOWN: {
+    label: 'Breakdown',
+    cls: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20',
+    dot: 'bg-red-500 animate-pulse',
+  },
+};
+
+export function StatusBadge({ status }) {
+  const meta = STATUS_META[status] || STATUS_META.STANDBY;
+  return (
+    <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border inline-flex items-center gap-1.5 ${meta.cls}`}>
+      <span className={`w-2 h-2 rounded-full ${meta.dot}`} />
+      {meta.label}
+    </span>
+  );
+}
+
+const actionBtn =
+  'px-2.5 py-1.5 rounded-lg bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-black dark:text-white font-semibold text-xs border border-black/10 dark:border-white/10 flex items-center justify-center gap-1 cursor-pointer transition-colors';
+
+function FuelBar({ machine }) {
+  if (!(machine.fuelCapacity > 0)) return <span className="text-[10px] text-black/40 dark:text-white/40">No tank set</span>;
+  const low = machine.fuelLevel < 20;
+  return (
+    <div className="flex items-center gap-1.5 justify-center">
+      <Fuel size={11} className={low ? 'text-red-500' : 'text-orange-500'} />
+      <div className="w-14 h-1.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
+        <div className={`h-full ${low ? 'bg-red-500' : 'bg-orange-500'}`} style={{ width: `${machine.fuelLevel}%` }} />
+      </div>
+      <span className="text-[10px] text-black/50 dark:text-white/50">{machine.fuelLevel}%</span>
+    </div>
+  );
+}
+
+function RowActions({ machine, onLogHours, onLogFuel, onReportIssue }) {
+  return (
+    <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+      <button onClick={() => onLogHours(machine)} title="Log shift hours" className={actionBtn}>
+        <Clock size={13} /> <span>Hours</span>
+      </button>
+      <button onClick={() => onLogFuel(machine)} title="Record a fuel top-up" className={actionBtn}>
+        <Fuel size={13} /> <span>Fuel</span>
+      </button>
+      <button
+        onClick={() => onReportIssue(machine)}
+        title="Report a breakdown"
+        className={`${actionBtn} !bg-red-500/10 !text-red-600 dark:!text-red-400 !border-red-500/20 hover:!bg-red-500/20`}
+      >
+        <AlertTriangle size={13} /> <span>Issue</span>
+      </button>
+    </div>
+  );
+}
+
+export default function DeploymentMatrixTable({
+  machines = [],
+  onSelectMachine,
+  onLogHours,
+  onLogFuel,
+  onReportIssue,
+  onAddMachine,
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [classFilter, setClassFilter] = useState('ALL');
 
-  const filteredFleet = fleetData.filter(machine => {
-    const matchesSearch = 
-      machine.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      machine.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      machine.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      machine.subcontractor.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesStatus = statusFilter === 'ALL' || machine.status === statusFilter;
-    const matchesClass = classFilter === 'ALL' || machine.classType.startsWith(classFilter);
-
+  const q = searchQuery.toLowerCase();
+  const filtered = machines.filter((m) => {
+    const matchesSearch =
+      m.name.toLowerCase().includes(q) ||
+      m.id.toLowerCase().includes(q) ||
+      (m.location || '').toLowerCase().includes(q) ||
+      (m.subcontractor || '').toLowerCase().includes(q);
+    const matchesStatus = statusFilter === 'ALL' || m.status === statusFilter;
+    const matchesClass = classFilter === 'ALL' || m.classType.startsWith(classFilter);
     return matchesSearch && matchesStatus && matchesClass;
   });
 
-  const getStatusBadge = (status) => {
-    switch (status) {
-      case 'PRODUCTIVE':
-        return (
-          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 inline-flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            Productive
-          </span>
-        );
-      case 'IDLE':
-        return (
-          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 inline-flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-amber-500" />
-            Idle (Engine On)
-          </span>
-        );
-      case 'STANDBY':
-        return (
-          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20 inline-flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-slate-400" />
-            Standby (Engine Off)
-          </span>
-        );
-      case 'BREAKDOWN':
-        return (
-          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 inline-flex items-center gap-1.5 animate-pulse">
-            <span className="w-2 h-2 rounded-full bg-red-500" />
-            Breakdown
-          </span>
-        );
-      default:
-        return null;
-    }
-  };
+  const selectCls =
+    'px-3 py-2 rounded-xl text-xs bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer';
+
+  if (machines.length === 0) {
+    return (
+      <div className="text-center py-14 bg-white dark:bg-[#0a0f1d] border border-dashed border-black/15 dark:border-white/15 rounded-2xl">
+        <Truck className="mx-auto text-black/20 dark:text-white/20 mb-3" size={32} />
+        <p className="text-sm text-black/60 dark:text-white/60 mb-4">No machinery added to this project yet.</p>
+        <button
+          onClick={onAddMachine}
+          className="inline-flex items-center gap-2 bg-black dark:bg-white text-white dark:text-black text-xs font-semibold px-4 py-2.5 rounded-lg hover:opacity-90 transition-opacity cursor-pointer"
+        >
+          <Plus size={14} /> Add your first machine
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="rounded-2xl bg-white dark:bg-slate-900 border border-black/10 dark:border-white/10 shadow-sm overflow-hidden space-y-0">
-      {/* Header & Filter Controls */}
-      <div className="p-4 md:p-6 border-b border-black/10 dark:border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h3 className="text-lg font-bold text-black dark:text-white flex items-center gap-2">
-            <span>Section 2: Machinery Live Deployment Matrix</span>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-              {filteredFleet.length} Active Machines
-            </span>
-          </h3>
-          <p className="text-xs text-black/50 dark:text-white/50 mt-0.5">
-            Real-time equipment location mapping, subcontractor assignments, and instant field action triggers.
-          </p>
-        </div>
+    <div className="rounded-2xl bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 shadow-sm overflow-hidden">
+      <div className="p-4 md:p-5 border-b border-black/10 dark:border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <h3 className="text-base font-bold text-black dark:text-white flex items-center gap-2">
+          Machinery Deployment
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
+            {filtered.length} machine{filtered.length === 1 ? '' : 's'}
+          </span>
+        </h3>
 
-        {/* Search & Filters */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-black/40 dark:text-white/40" />
+          <div className="relative flex-1 min-w-[180px]">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-black/40 dark:text-white/40" />
             <input
               type="text"
               placeholder="Search ID, name, location..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 rounded-lg text-xs bg-slate-50 dark:bg-slate-800 border border-black/10 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-black dark:text-white"
+              className="w-full pl-9 pr-4 py-2 rounded-xl text-xs bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 text-black dark:text-white placeholder:text-black/40 dark:placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-orange-500"
             />
           </div>
-
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 rounded-lg text-xs bg-slate-50 dark:bg-slate-800 border border-black/10 dark:border-white/10 text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-          >
-            <option value="ALL">All Live Statuses</option>
-            <option value="PRODUCTIVE">?? Productive</option>
-            <option value="IDLE">?? Idle</option>
-            <option value="STANDBY">? Standby</option>
-            <option value="BREAKDOWN">?? Breakdown</option>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={selectCls}>
+            <option value="ALL">All statuses</option>
+            <option value="PRODUCTIVE">Productive</option>
+            <option value="IDLE">Idle</option>
+            <option value="STANDBY">Standby</option>
+            <option value="BREAKDOWN">Breakdown</option>
           </select>
-
-          <select
-            value={classFilter}
-            onChange={(e) => setClassFilter(e.target.value)}
-            className="px-3 py-2 rounded-lg text-xs bg-slate-50 dark:bg-slate-800 border border-black/10 dark:border-white/10 text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-          >
-            <option value="ALL">All Class Ownerships</option>
-            <option value="Owned">Owned Fleet</option>
-            <option value="Rented">Rented Fleet</option>
+          <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className={selectCls}>
+            <option value="ALL">Owned & rented</option>
+            <option value="Owned">Owned</option>
+            <option value="Rented">Rented</option>
           </select>
         </div>
       </div>
 
-      {/* Scannable Matrix Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-black/10 dark:border-white/10 bg-slate-100/70 dark:bg-slate-800/60 text-[11px] uppercase font-bold text-black/60 dark:text-white/60 tracking-wider">
-              <th className="py-3 px-4">Asset ID / Machine Name</th>
-              <th className="py-3 px-4">Class</th>
-              <th className="py-3 px-4">Current Location</th>
-              <th className="py-3 px-4">Assigned Subcontractor</th>
-              <th className="py-3 px-4">Live Status & Activity</th>
-              <th className="py-3 px-4 text-center">HMR / Fuel</th>
-              <th className="py-3 px-4 text-center">Quick Actions Inline</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-black/5 dark:divide-white/5 text-xs text-black dark:text-white">
-            {filteredFleet.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="py-8 text-center text-black/50 dark:text-white/50">
-                  No machinery deployment records match your filter query.
-                </td>
+      {filtered.length === 0 && (
+        <p className="py-10 text-center text-xs text-black/50 dark:text-white/50">No machines match your search or filters.</p>
+      )}
+
+      {/* Desktop table */}
+      {filtered.length > 0 && (
+        <div className="hidden md:block overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-black/5 dark:bg-white/5 border-b border-black/10 dark:border-white/10 text-[11px] uppercase font-bold text-black/60 dark:text-white/60 tracking-wider">
+                <th className="py-3 px-4">Machine</th>
+                <th className="py-3 px-4">Ownership</th>
+                <th className="py-3 px-4">Location & Subcontractor</th>
+                <th className="py-3 px-4">Status & Activity</th>
+                <th className="py-3 px-4 text-center">HMR / Fuel</th>
+                <th className="py-3 px-4 text-center">Quick Actions</th>
               </tr>
-            ) : (
-              filteredFleet.map((machine) => (
-                <tr 
-                  key={machine.id}
+            </thead>
+            <tbody className="divide-y divide-black/5 dark:divide-white/5 text-xs text-black dark:text-white">
+              {filtered.map((m) => (
+                <tr
+                  key={m._id}
+                  onClick={() => onSelectMachine(m)}
                   className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer group"
-                  onClick={() => onSelectMachine(machine)}
                 >
-                  {/* Asset ID / Name */}
                   <td className="py-3.5 px-4">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs">
-                        {machine.id}
-                      </span>
-                      <span className="font-bold text-black dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-                        {machine.name}
-                      </span>
+                      <span className="font-mono font-bold px-2 py-0.5 rounded bg-black/5 dark:bg-white/10 text-xs">{m.id}</span>
+                      <span className="font-bold group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors">{m.name}</span>
                     </div>
                     <div className="text-[10px] text-black/50 dark:text-white/50 mt-0.5">
-                      Operator: {machine.assignedOperator}
+                      {m.category}{m.assignedOperator ? ` · Operator: ${m.assignedOperator}` : ''}
                     </div>
                   </td>
-
-                  {/* Class */}
                   <td className="py-3.5 px-4">
-                    <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-black/5 dark:border-white/10">
-                      {machine.classType}
+                    <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-black/5 dark:bg-white/10 text-black/70 dark:text-white/70 border border-black/5 dark:border-white/10">
+                      {m.classType}
                     </span>
                   </td>
-
-                  {/* Location */}
-                  <td className="py-3.5 px-4">
+                  <td className="py-3.5 px-4 space-y-0.5">
                     <div className="flex items-center gap-1.5 font-medium">
-                      <MapPin size={14} className="text-red-500 shrink-0" />
-                      <span>{machine.location}</span>
+                      <MapPin size={13} className="text-orange-500 shrink-0" />
+                      <span>{m.location || '—'}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-black/60 dark:text-white/60">
+                      <Building2 size={13} className="shrink-0" />
+                      <span>{m.subcontractor || '—'}</span>
                     </div>
                   </td>
-
-                  {/* Assigned Subcontractor */}
                   <td className="py-3.5 px-4">
-                    <div className="flex items-center gap-1.5 font-medium text-indigo-600 dark:text-indigo-400">
-                      <Building2 size={14} className="shrink-0" />
-                      <span>{machine.subcontractor}</span>
-                    </div>
-                  </td>
-
-                  {/* Live Status & Activity */}
-                  <td className="py-3.5 px-4">
-                    <div className="mb-1">{getStatusBadge(machine.status)}</div>
+                    <div className="mb-1"><StatusBadge status={m.status} /></div>
                     <div className="text-[11px] text-black/60 dark:text-white/60 truncate max-w-xs">
-                      {machine.currentActivity}
+                      {m.currentActivity || 'No activity noted'}
                     </div>
                   </td>
-
-                  {/* HMR / Fuel Level */}
-                  <td className="py-3.5 px-4 text-center font-mono">
-                    <div className="font-bold">{machine.hmrCurrent} hrs</div>
-                    <div className="text-[10px] text-black/50 dark:text-white/50 flex items-center justify-center gap-1 mt-0.5">
-                      <Fuel size={11} className="text-orange-500" />
-                      <span>{machine.fuelLevel}% Fuel</span>
-                    </div>
+                  <td className="py-3.5 px-4 text-center font-mono space-y-1">
+                    <div className="font-bold">{m.hmrCurrent} hrs</div>
+                    <FuelBar machine={m} />
                   </td>
-
-                  {/* Quick Actions Inline */}
-                  <td className="py-3.5 px-4" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center justify-center gap-1.5">
-                      {/* 1. Log Hours Button */}
-                      <button
-                        onClick={() => onLogHours(machine)}
-                        title="Log Shift Hours"
-                        className="px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900 text-indigo-600 dark:text-indigo-300 font-semibold text-xs transition-colors border border-indigo-200 dark:border-indigo-800 flex items-center gap-1 cursor-pointer"
-                      >
-                        <Clock size={13} />
-                        <span>Log Hours</span>
-                      </button>
-
-                      {/* 2. Log Fuel Button */}
-                      <button
-                        onClick={() => onLogFuel(machine)}
-                        title="Record Diesel Top-Up"
-                        className="px-2.5 py-1.5 rounded-lg bg-orange-50 dark:bg-orange-950/60 hover:bg-orange-100 dark:hover:bg-orange-900 text-orange-600 dark:text-orange-300 font-semibold text-xs transition-colors border border-orange-200 dark:border-orange-800 flex items-center gap-1 cursor-pointer"
-                      >
-                        <Fuel size={13} />
-                        <span>Log Fuel</span>
-                      </button>
-
-                      {/* 3. Report Issue Button */}
-                      <button
-                        onClick={() => onReportIssue(machine)}
-                        title="Report Breakdown Alert"
-                        className="px-2.5 py-1.5 rounded-lg bg-red-50 dark:bg-red-950/60 hover:bg-red-100 dark:hover:bg-red-900 text-red-600 dark:text-red-300 font-semibold text-xs transition-colors border border-red-200 dark:border-red-800 flex items-center gap-1 cursor-pointer"
-                      >
-                        <AlertTriangle size={13} />
-                        <span>Issue</span>
-                      </button>
-                    </div>
+                  <td className="py-3.5 px-4">
+                    <RowActions machine={m} onLogHours={onLogHours} onLogFuel={onLogFuel} onReportIssue={onReportIssue} />
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Mobile cards */}
+      {filtered.length > 0 && (
+        <div className="md:hidden p-3 space-y-3">
+          {filtered.map((m) => (
+            <div
+              key={m._id}
+              onClick={() => onSelectMachine(m)}
+              className="p-4 rounded-2xl border border-black/10 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.02] space-y-3 cursor-pointer"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <span className="font-mono font-bold px-2 py-0.5 rounded bg-black/5 dark:bg-white/10 text-xs text-black dark:text-white">{m.id}</span>
+                  <p className="font-bold text-sm text-black dark:text-white mt-1.5">{m.name}</p>
+                  <p className="text-[11px] text-black/50 dark:text-white/50">{m.classType} · {m.category}</p>
+                </div>
+                <StatusBadge status={m.status} />
+              </div>
+              <p className="text-[11px] text-black/60 dark:text-white/60">{m.currentActivity || 'No activity noted'}</p>
+              <div className="flex items-center justify-between text-xs text-black dark:text-white">
+                <span className="flex items-center gap-1.5"><MapPin size={13} className="text-orange-500" />{m.location || '—'}</span>
+                <span className="font-mono font-bold">{m.hmrCurrent} hrs</span>
+              </div>
+              <FuelBar machine={m} />
+              <RowActions machine={m} onLogHours={onLogHours} onLogFuel={onLogFuel} onReportIssue={onReportIssue} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

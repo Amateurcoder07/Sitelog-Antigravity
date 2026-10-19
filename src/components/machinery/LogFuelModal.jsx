@@ -1,129 +1,75 @@
 ﻿import React, { useState } from 'react';
-import { X, Fuel, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Fuel } from 'lucide-react';
+import ModalShell, { ModalActions, fieldCls, labelCls } from './ModalShell';
+
+const SOURCES = ['Site diesel tank / bowser', 'External fuel station', 'Vendor delivery truck'];
 
 export default function LogFuelModal({ machine, onClose, onSubmit }) {
-  const [litersFilled, setLitersFilled] = useState(50);
-  const [vendor, setVendor] = useState('Site Bowser Tank #1');
-  const [slipNo, setSlipNo] = useState(`FSL-${Math.floor(10000 + Math.random() * 90000)}`);
-  const [density, setDensity] = useState(835);
+  const [litres, setLitres] = useState('');
+  const [slipNo, setSlipNo] = useState('');
+  const [source, setSource] = useState(SOURCES[0]);
+  const [busy, setBusy] = useState(false);
 
-  if (!machine) return null;
+  const hasTank = machine.fuelCapacity > 0;
+  const freeLitres = hasTank ? Math.max(0, Math.round(machine.fuelCapacity * (1 - machine.fuelLevel / 100))) : null;
+  const projected = hasTank && Number(litres) > 0
+    ? Math.min(100, Math.round((machine.fuelLevel + (Number(litres) / machine.fuelCapacity) * 100) * 10) / 10)
+    : null;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    onSubmit({
-      machineId: machine.id,
-      litersFilled: parseFloat(litersFilled),
-      vendor,
-      slipNo,
-      density,
-      timestamp: new Date().toISOString()
-    });
-    onClose();
+    setBusy(true);
+    try {
+      const saved = await onSubmit(machine, { litres: Number(litres), slipNo, source });
+      if (saved) onClose();
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200">
-        <div className="p-5 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-amber-500/10 text-amber-400 rounded-xl">
-              <Fuel size={20} />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-white">Log Diesel Top-up Fuel</h3>
-              <p className="text-xs text-slate-400">{machine.name} ({machine.regNo})</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
-          >
-            <X size={18} />
-          </button>
+    <ModalShell icon={Fuel} title="Log Diesel Top-up" subtitle={`${machine.name} (${machine.id})`} onClose={onClose}>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className={labelCls}>Fuel added (litres)</label>
+          <input
+            type="number"
+            step="0.1"
+            min="0.1"
+            max={hasTank ? machine.fuelCapacity : undefined}
+            value={litres}
+            onChange={(e) => setLitres(e.target.value)}
+            placeholder="e.g. 50"
+            className={`${fieldCls} font-mono text-base`}
+            required
+          />
+          {hasTank ? (
+            <p className="text-[11px] text-black/50 dark:text-white/50 mt-1">
+              Tank {machine.fuelCapacity} L · currently {machine.fuelLevel}% (about {freeLitres} L free)
+              {projected != null && <> · after top-up ≈ <strong className="text-black dark:text-white">{projected}%</strong></>}
+            </p>
+          ) : (
+            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+              No tank capacity is set for this machine, so the tank level won't update. Edit the machine to add it.
+            </p>
+          )}
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Fuel Volume Added (Liters)
-            </label>
-            <input
-              type="number"
-              min="1"
-              max="1000"
-              value={litersFilled}
-              onChange={(e) => setLitersFilled(parseFloat(e.target.value) || 0)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white font-mono text-base font-bold focus:outline-none focus:border-amber-500"
-              required
-            />
-          </div>
+        <div>
+          <label className={labelCls}>Fuel slip / voucher no.</label>
+          <input type="text" value={slipNo} onChange={(e) => setSlipNo(e.target.value)} placeholder="Number printed on the slip" className={`${fieldCls} font-mono`} required />
+          <p className="text-[11px] text-black/50 dark:text-white/50 mt-1">Each slip number can only be logged once.</p>
+        </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Fuel Slip Voucher #
-              </label>
-              <input
-                type="text"
-                value={slipNo}
-                onChange={(e) => setSlipNo(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-amber-500"
-                required
-              />
-            </div>
+        <div>
+          <label className={labelCls}>Fuel source</label>
+          <select value={source} onChange={(e) => setSource(e.target.value)} className={fieldCls}>
+            {SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Diesel Density (kg/m³)
-              </label>
-              <input
-                type="number"
-                value={density}
-                onChange={(e) => setDensity(parseInt(e.target.value) || 835)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-amber-500"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Fuel Dispenser Source / Bowser Tanker
-            </label>
-            <select
-              value={vendor}
-              onChange={(e) => setVendor(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-sm font-medium focus:outline-none focus:border-amber-500"
-            >
-              <option value="Site Bowser Tank #1">Site Bowser Tank #1</option>
-              <option value="Site Bowser Tank #2">Site Bowser Tank #2</option>
-              <option value="External IOCL Fuel Station">External IOCL Fuel Station</option>
-              <option value="BPCL Vendor Delivery Truck">BPCL Vendor Delivery Truck</option>
-            </select>
-          </div>
-
-          <div className="p-3.5 bg-slate-800/40 rounded-xl border border-slate-700/50 flex items-center gap-2.5 text-xs text-slate-300">
-            <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
-            <span>Anti-Theft Check: Logged volume will automatically update tank telemetry level.</span>
-          </div>
-
-          <div className="pt-2 flex items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-5 py-2.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/20 transition-all cursor-pointer"
-            >
-              Record Fuel Log
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <ModalActions onClose={onClose} submitLabel="Record Fuel Log" busy={busy} />
+      </form>
+    </ModalShell>
   );
 }

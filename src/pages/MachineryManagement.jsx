@@ -1,19 +1,8 @@
-﻿import React, { useState } from 'react';
-import { 
-  Truck, 
-  Gauge, 
-  Activity, 
-  Tablet, 
-  Receipt, 
-  Layers, 
-  Plus, 
-  Clock, 
-  Fuel, 
-  AlertTriangle, 
-  Building2,
-  CheckCircle2,
-  DollarSign
-} from 'lucide-react';
+﻿import React, { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
+import { Truck, Tablet, Receipt, Layers, Plus, ShieldAlert } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
+import * as machineryService from '../services/Machineryservice';
 
 import FleetKpiRibbon from '../components/machinery/FleetKpiRibbon';
 import DeploymentMatrixTable from '../components/machinery/DeploymentMatrixTable';
@@ -21,243 +10,338 @@ import DigitalOperatorLogbook from '../components/machinery/DigitalOperatorLogbo
 import FinancialReconciliationEngine from '../components/machinery/FinancialReconciliationEngine';
 import MachineDetailPanel from '../components/machinery/MachineDetailPanel';
 
+import MachineFormModal from '../components/machinery/Machineformmodal';
+import OperatorModal from '../components/machinery/Operatormodal';
 import LogHoursModal from '../components/machinery/LogHoursModal';
 import LogFuelModal from '../components/machinery/LogFuelModal';
 import ReportIssueModal from '../components/machinery/ReportIssueModal';
 import NewBackchargeModal from '../components/machinery/NewBackchargeModal';
 
-import { INITIAL_FLEET_DATA, INITIAL_SUBCONTRACTOR_BACKCHARGES } from '../data/mockMachineryData';
+const OBJECT_ID_RE = /^[0-9a-fA-F]{24}$/;
 
 export default function MachineryManagement() {
-  const [activeTab, setActiveTab] = useState('ALL');
-  const [fleetData, setFleetData] = useState(INITIAL_FLEET_DATA);
-  const [backcharges, setBackcharges] = useState(INITIAL_SUBCONTRACTOR_BACKCHARGES);
+  const { showToast } = useToast();
+  const { projectId } = useParams();
+  const hasRealProject = OBJECT_ID_RE.test(projectId || '');
 
-  const [selectedMachine, setSelectedMachine] = useState(null);
-  const [modalType, setModalType] = useState(null);
-  const [activeMachineForModal, setActiveMachineForModal] = useState(null);
+  const [activeTab, setActiveTab] = useState('fleet'); // 'fleet' | 'logbook' | 'billing'
+  const [machines, setMachines] = useState([]);
+  const [operators, setOperators] = useState([]);
+  const [backcharges, setBackcharges] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
-  const handleOpenLogHours = (machine) => {
-    setActiveMachineForModal(machine);
-    setModalType('LOG_HOURS');
-  };
+  const [selectedMachineId, setSelectedMachineId] = useState(null);
+  // modal: null | { type: 'ADD_MACHINE' | 'EDIT_MACHINE' | 'LOG_HOURS' | 'LOG_FUEL' | 'REPORT_ISSUE' | 'NEW_BACKCHARGE' | 'ADD_OPERATOR', machineId? }
+  const [modal, setModal] = useState(null);
 
-  const handleOpenLogFuel = (machine) => {
-    setActiveMachineForModal(machine);
-    setModalType('LOG_FUEL');
-  };
+  const failToast = (err, fallback) => showToast(`⚠️ ${err?.response?.data?.msg || fallback}`);
 
-  const handleOpenReportIssue = (machine) => {
-    setActiveMachineForModal(machine);
-    setModalType('REPORT_ISSUE');
-  };
+  useEffect(() => {
+    if (!hasRealProject) {
+      setIsLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setIsLoading(true);
+    setLoadError('');
+    machineryService
+      .fetchMachinery(projectId)
+      .then((data) => {
+        if (cancelled) return;
+        setMachines(data.machines);
+        setOperators(data.operators);
+        setBackcharges(data.backcharges);
+      })
+      .catch((err) => !cancelled && setLoadError(err.response?.data?.msg || 'Could not load machinery data.'))
+      .finally(() => !cancelled && setIsLoading(false));
+    return () => { cancelled = true; };
+  }, [projectId, hasRealProject]);
 
-  const handleOpenBackchargeModal = () => {
-    setModalType('NEW_BACKCHARGE');
-  };
+  const selectedMachine = machines.find((m) => m._id === selectedMachineId) || null;
+  const modalMachine = modal?.machineId ? machines.find((m) => m._id === modal.machineId) : null;
+  const openModal = (type, machine) => setModal({ type, machineId: machine?._id });
+  const closeModal = () => setModal(null);
 
-  const handleSaveHoursLog = (logData) => {
-    setFleetData(prev => prev.map(m => {
-      if (m.id === logData.machineId) {
-        return {
-          ...m,
-          hmrCurrent: logData.closingHmr,
-          loggedHoursThisMonth: m.loggedHoursThisMonth + logData.hoursLogged
-        };
+  const replaceMachine = (machine) => setMachines((prev) => prev.map((m) => (m._id === machine._id ? machine : m)));
+
+  // ---------------------------------------------------------------- machines
+  const handleSaveMachine = async (payload) => {
+    try {
+      if (modal.type === 'EDIT_MACHINE') {
+        const { machine } = await machineryService.updateMachine(modal.machineId, payload);
+        replaceMachine(machine);
+        showToast(`Updated ${machine.name}`);
+      } else {
+        const { machine } = await machineryService.createMachine(projectId, payload);
+        setMachines((prev) => [...prev, machine]);
+        showToast(`Added ${machine.name} (${machine.id})`);
       }
-      return m;
-    }));
+      return true;
+    } catch (err) {
+      failToast(err, 'Could not save the machine.');
+      return false;
+    }
   };
 
-  const handleSaveFuelLog = (fuelData) => {
-    setFleetData(prev => prev.map(m => {
-      if (m.id === fuelData.machineId) {
-        const newConsumed = (m.fuelConsumedToday || 0) + fuelData.litersFilled;
-        return {
-          ...m,
-          fuelConsumedToday: newConsumed,
-          fuelLevel: Math.min(100, (m.fuelLevel || 50) + 25)
-        };
-      }
-      return m;
-    }));
+  const handleDeleteMachine = async (machine) => {
+    if (!window.confirm(`Remove ${machine.name} (${machine.id})? Its hour and fuel logs will be deleted too. Back-charges already raised are kept.`)) return;
+    try {
+      await machineryService.deleteMachine(machine._id);
+      setMachines((prev) => prev.filter((m) => m._id !== machine._id));
+      setSelectedMachineId(null);
+      showToast(`Removed ${machine.name}`);
+    } catch (err) {
+      failToast(err, 'Could not remove the machine.');
+    }
   };
 
-  const handleSaveIssueReport = (issueData) => {
-    setFleetData(prev => prev.map(m => {
-      if (m.id === issueData.machineId) {
-        return {
-          ...m,
-          status: 'BREAKDOWN',
-          currentActivity: 'BREAKDOWN: ' + issueData.issueType + ' (' + issueData.description + ')'
-        };
-      }
-      return m;
-    }));
+  const handleUpdateStatus = async (machine, payload) => {
+    try {
+      const { machine: updated } = await machineryService.updateMachineStatus(machine._id, payload);
+      replaceMachine(updated);
+      showToast(`${updated.name} status updated`);
+    } catch (err) {
+      failToast(err, 'Could not update the status.');
+    }
   };
 
-  const handleAddBackcharge = (newCharge) => {
-    setBackcharges(prev => [newCharge, ...prev]);
+  // ----------------------------------------------------------------- logging
+  const handleLogHours = async (machine, payload) => {
+    try {
+      const { machine: updated } = await machineryService.logHours(machine._id, payload);
+      replaceMachine(updated);
+      showToast(`Logged ${Math.round((updated.hmrCurrent - machine.hmrCurrent) * 10) / 10} hrs on ${updated.id}`);
+      return true;
+    } catch (err) {
+      failToast(err, 'Could not log the hours.');
+      return false;
+    }
   };
+
+  const handleLogbookSubmit = async (machine, payload) => {
+    try {
+      const { machine: updated } = await machineryService.logShift(machine._id, payload);
+      replaceMachine(updated);
+      showToast(`Shift logbook recorded for ${updated.id}`);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.response?.data?.msg || 'Could not submit the logbook.' };
+    }
+  };
+
+  const handleLogFuel = async (machine, payload) => {
+    try {
+      const { machine: updated } = await machineryService.logFuel(machine._id, payload);
+      replaceMachine(updated);
+      showToast(`Fuel logged for ${updated.id} — tank now ${updated.fuelLevel}%`);
+      return true;
+    } catch (err) {
+      failToast(err, 'Could not log the fuel.');
+      return false;
+    }
+  };
+
+  const handleReportIssue = async (machine, payload) => {
+    try {
+      const { machine: updated } = await machineryService.reportIssue(machine._id, payload);
+      replaceMachine(updated);
+      showToast(`${updated.id} flagged as broken down`);
+      return true;
+    } catch (err) {
+      failToast(err, 'Could not report the breakdown.');
+      return false;
+    }
+  };
+
+  // --------------------------------------------------------------- operators
+  const handleAddOperator = async (payload) => {
+    try {
+      const { operator } = await machineryService.createOperator(projectId, payload);
+      setOperators((prev) => [...prev, operator]);
+      showToast(`Operator ${operator.name} added (${operator.id})`);
+      return true;
+    } catch (err) {
+      failToast(err, 'Could not add the operator.');
+      return false;
+    }
+  };
+
+  const handleRemoveOperator = async (operator) => {
+    if (!window.confirm(`Remove operator ${operator.name}?`)) return;
+    try {
+      await machineryService.deleteOperator(operator._id);
+      setOperators((prev) => prev.filter((o) => o._id !== operator._id));
+      setMachines((prev) =>
+        prev.map((m) => (m.assignedOperatorId === operator._id ? { ...m, assignedOperatorId: '', assignedOperator: '' } : m))
+      );
+      showToast(`Removed operator ${operator.name}`);
+    } catch (err) {
+      failToast(err, 'Could not remove the operator.');
+    }
+  };
+
+  // ------------------------------------------------------------ back-charges
+  const handleAddBackcharge = async (payload) => {
+    try {
+      const { backcharge } = await machineryService.createBackcharge(projectId, payload);
+      setBackcharges((prev) => [backcharge, ...prev]);
+      showToast(`Back-charge ${backcharge.id} created`);
+      return true;
+    } catch (err) {
+      failToast(err, 'Could not create the back-charge.');
+      return false;
+    }
+  };
+
+  const handleToggleDeducted = async (backcharge) => {
+    const next = backcharge.status === 'PENDING' ? 'DEDUCTED' : 'PENDING';
+    try {
+      const { backcharge: updated } = await machineryService.updateBackchargeStatus(backcharge._id, { status: next });
+      setBackcharges((prev) => prev.map((b) => (b._id === updated._id ? updated : b)));
+      showToast(next === 'DEDUCTED' ? `${backcharge.id} marked as deducted` : `${backcharge.id} moved back to pending`);
+    } catch (err) {
+      failToast(err, 'Could not update the back-charge.');
+    }
+  };
+
+  // ------------------------------------------------------------------- gates
+  if (!hasRealProject) {
+    return (
+      <div className="text-center py-16 border border-dashed border-black/15 dark:border-white/15 rounded-xl">
+        <Truck className="mx-auto text-black/20 dark:text-white/20 mb-3" size={32} />
+        <p className="text-sm text-black/50 dark:text-white/50 max-w-md mx-auto">
+          Machinery & Fleet saves to the server, so it needs a real project. Create or join one from the Dashboard (demo projects are not stored).
+        </p>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="text-center py-16 border border-dashed border-red-500/30 rounded-xl">
+        <ShieldAlert className="mx-auto text-red-500/60 mb-3" size={32} />
+        <p className="text-sm text-red-600 dark:text-red-400">{loadError}</p>
+      </div>
+    );
+  }
+
+  const tabs = [
+    ['fleet', Layers, `Fleet (${machines.length})`],
+    ['logbook', Tablet, 'Operator Logbook'],
+    ['billing', Receipt, 'Billing & Back-charges'],
+  ];
 
   return (
-    <div className="space-y-8 pb-16">
-      {/* Header Banner */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-        <div className="absolute right-0 top-0 translate-x-8 -translate-y-8 w-64 h-64 bg-orange-500/10 rounded-full blur-3xl pointer-events-none" />
-        
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+    <div className="space-y-6 pb-16">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 p-5 md:p-6 rounded-2xl shadow-sm">
+        <div className="flex items-start gap-4">
+          <div className="p-3.5 rounded-2xl bg-orange-500/10 text-orange-600 dark:text-orange-400 mt-0.5 flex-shrink-0">
+            <Truck size={28} />
+          </div>
           <div>
-            <div className="flex items-center gap-2 text-orange-400 font-bold text-xs uppercase tracking-wider mb-2">
-              <Truck size={18} />
-              <span>P&M & PM VIEW</span>
-            </div>
-            <h1 className="text-3xl font-black text-white tracking-tight flex items-center gap-3">
-              Heavy Machinery & Equipment Utilization
-            </h1>
-            <p className="text-sm text-slate-400 mt-1 max-w-3xl">
-              Track fleet availability, engine idling, fuel theft risks, rental cash bleed & daily supervisor HMR logbooks.
+            <h1 className="text-xl md:text-2xl font-black text-black dark:text-white tracking-tight">Machinery & Fleet</h1>
+            <p className="text-xs md:text-sm text-black/60 dark:text-white/60 mt-1 max-w-2xl">
+              Track where every machine is, what it's doing, its hours and fuel, rented-machine commitments and subcontractor back-charges.
             </p>
           </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => handleOpenLogHours(fleetData[0])}
-              className="flex items-center gap-2 bg-white text-slate-900 hover:bg-slate-100 font-bold text-xs px-4 py-2.5 rounded-xl shadow transition-all cursor-pointer whitespace-nowrap"
-            >
-              <Clock size={16} />
-              Log Hours
-            </button>
-          </div>
         </div>
-
-        {/* 4-Grid Responsive Navigation Bar - Always visible without scroll clipping */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 mt-6 pt-5 border-t border-slate-800">
-          <button
-            onClick={() => setActiveTab('SECTION1_2')}
-            className={`px-3.5 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 text-center ${
-              activeTab === 'SECTION1_2'
-                ? 'bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow-lg shadow-orange-500/20 ring-2 ring-orange-400/50'
-                : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-700/50'
-            }`}
-          >
-            <Layers size={16} className="shrink-0" />
-            <span>Sec 1 & 2: Fleet & Deployment</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('SECTION3')}
-            className={`px-3.5 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 text-center ${
-              activeTab === 'SECTION3'
-                ? 'bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow-lg shadow-orange-500/20 ring-2 ring-orange-400/50'
-                : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-700/50'
-            }`}
-          >
-            <Tablet size={16} className="shrink-0" />
-            <span>Sec 3: Digital Cabin Logbook</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('SECTION4')}
-            className={`px-3.5 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 text-center ${
-              activeTab === 'SECTION4'
-                ? 'bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow-lg shadow-orange-500/20 ring-2 ring-orange-400/50'
-                : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-700/50'
-            }`}
-          >
-            <DollarSign size={16} className="shrink-0 text-emerald-400" />
-            <span>Sec 4: Financial & Billing</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('ALL')}
-            className={`px-3.5 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 text-center ${
-              activeTab === 'ALL'
-                ? 'bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow-lg shadow-orange-500/20 ring-2 ring-orange-400/50'
-                : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-700/50'
-            }`}
-          >
-            <Layers size={16} className="shrink-0" />
-            <span>All 4 Sections View</span>
-          </button>
-        </div>
+        <button
+          onClick={() => openModal('ADD_MACHINE')}
+          className="flex items-center justify-center gap-2 bg-black dark:bg-white text-white dark:text-black text-xs font-semibold px-4 py-3 rounded-xl hover:opacity-90 transition-opacity cursor-pointer min-h-[44px]"
+        >
+          <Plus size={15} /> Add Machinery
+        </button>
       </div>
 
-      {/* Render Selected Sections */}
-      {(activeTab === 'ALL' || activeTab === 'SECTION1_2') && (
-        <section className="space-y-6">
-          <FleetKpiRibbon fleetData={fleetData} />
-          <DeploymentMatrixTable
-            fleetData={fleetData}
-            onSelectMachine={(m) => setSelectedMachine(m)}
-            onLogHours={handleOpenLogHours}
-            onLogFuel={handleOpenLogFuel}
-            onReportIssue={handleOpenReportIssue}
-          />
-        </section>
+      <FleetKpiRibbon machines={machines} />
+
+      <div className="flex items-center gap-1 p-1 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-2xl overflow-x-auto">
+        {tabs.map(([key, Icon, label]) => (
+          <button
+            key={key}
+            onClick={() => setActiveTab(key)}
+            className={`flex items-center gap-2 px-4 py-3 min-h-[48px] text-xs md:text-sm font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
+              activeTab === key
+                ? 'bg-black dark:bg-white text-white dark:text-black shadow-md'
+                : 'text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white'
+            }`}
+          >
+            <Icon size={16} />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {isLoading ? (
+        <p className="text-sm text-black/40 dark:text-white/40">Loading machinery…</p>
+      ) : (
+        <>
+          {activeTab === 'fleet' && (
+            <DeploymentMatrixTable
+              machines={machines}
+              onSelectMachine={(m) => setSelectedMachineId(m._id)}
+              onLogHours={(m) => openModal('LOG_HOURS', m)}
+              onLogFuel={(m) => openModal('LOG_FUEL', m)}
+              onReportIssue={(m) => openModal('REPORT_ISSUE', m)}
+              onAddMachine={() => openModal('ADD_MACHINE')}
+            />
+          )}
+
+          {activeTab === 'logbook' && (
+            <DigitalOperatorLogbook
+              machines={machines}
+              operators={operators}
+              onSubmitLog={handleLogbookSubmit}
+              onAddOperator={() => openModal('ADD_OPERATOR')}
+              onRemoveOperator={handleRemoveOperator}
+            />
+          )}
+
+          {activeTab === 'billing' && (
+            <FinancialReconciliationEngine
+              machines={machines}
+              backcharges={backcharges}
+              onOpenBackchargeModal={() => openModal('NEW_BACKCHARGE')}
+              onToggleDeducted={handleToggleDeducted}
+            />
+          )}
+        </>
       )}
 
-      {(activeTab === 'ALL' || activeTab === 'SECTION3') && (
-        <section className="space-y-4 pt-2">
-          <DigitalOperatorLogbook
-            fleetData={fleetData}
-            onSubmitLog={handleSaveHoursLog}
-          />
-        </section>
-      )}
-
-      {(activeTab === 'ALL' || activeTab === 'SECTION4') && (
-        <section className="space-y-4 pt-2">
-          <FinancialReconciliationEngine
-            fleetData={fleetData}
-            backcharges={backcharges}
-            onAddBackcharge={handleAddBackcharge}
-            onOpenBackchargeModal={handleOpenBackchargeModal}
-          />
-        </section>
-      )}
-
-      {/* Modals & Detail Panel */}
       {selectedMachine && (
         <MachineDetailPanel
           machine={selectedMachine}
-          onClose={() => setSelectedMachine(null)}
-          onLogHours={handleOpenLogHours}
-          onLogFuel={handleOpenLogFuel}
-          onReportIssue={handleOpenReportIssue}
+          onClose={() => setSelectedMachineId(null)}
+          onLogHours={(m) => openModal('LOG_HOURS', m)}
+          onLogFuel={(m) => openModal('LOG_FUEL', m)}
+          onReportIssue={(m) => openModal('REPORT_ISSUE', m)}
+          onEdit={(m) => openModal('EDIT_MACHINE', m)}
+          onDelete={handleDeleteMachine}
+          onUpdateStatus={handleUpdateStatus}
         />
       )}
 
-      {modalType === 'LOG_HOURS' && activeMachineForModal && (
-        <LogHoursModal
-          machine={activeMachineForModal}
-          onClose={() => setModalType(null)}
-          onSubmit={handleSaveHoursLog}
-        />
+      {modal?.type === 'ADD_MACHINE' && (
+        <MachineFormModal operators={operators} onClose={closeModal} onSubmit={handleSaveMachine} />
       )}
-
-      {modalType === 'LOG_FUEL' && activeMachineForModal && (
-        <LogFuelModal
-          machine={activeMachineForModal}
-          onClose={() => setModalType(null)}
-          onSubmit={handleSaveFuelLog}
-        />
+      {modal?.type === 'EDIT_MACHINE' && modalMachine && (
+        <MachineFormModal machine={modalMachine} operators={operators} onClose={closeModal} onSubmit={handleSaveMachine} />
       )}
-
-      {modalType === 'REPORT_ISSUE' && activeMachineForModal && (
-        <ReportIssueModal
-          machine={activeMachineForModal}
-          onClose={() => setModalType(null)}
-          onSubmit={handleSaveIssueReport}
-        />
+      {modal?.type === 'LOG_HOURS' && modalMachine && (
+        <LogHoursModal machine={modalMachine} onClose={closeModal} onSubmit={handleLogHours} />
       )}
-
-      {modalType === 'NEW_BACKCHARGE' && (
-        <NewBackchargeModal
-          fleetData={fleetData}
-          onClose={() => setModalType(null)}
-          onSubmit={handleAddBackcharge}
-        />
+      {modal?.type === 'LOG_FUEL' && modalMachine && (
+        <LogFuelModal machine={modalMachine} onClose={closeModal} onSubmit={handleLogFuel} />
+      )}
+      {modal?.type === 'REPORT_ISSUE' && modalMachine && (
+        <ReportIssueModal machine={modalMachine} onClose={closeModal} onSubmit={handleReportIssue} />
+      )}
+      {modal?.type === 'NEW_BACKCHARGE' && (
+        <NewBackchargeModal machines={machines} onClose={closeModal} onSubmit={handleAddBackcharge} />
+      )}
+      {modal?.type === 'ADD_OPERATOR' && (
+        <OperatorModal machines={machines} onClose={closeModal} onSubmit={handleAddOperator} />
       )}
     </div>
   );

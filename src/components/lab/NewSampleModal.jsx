@@ -1,164 +1,173 @@
 import React, { useState, useEffect } from 'react';
-import { X, FlaskConical, Camera, Calendar, Building2, Layers, CheckCircle2, Truck, ShieldAlert } from 'lucide-react';
+import { X, FlaskConical, Camera, Building2 } from 'lucide-react';
 import Button from '../Button';
+import { localToday } from '../../utils/labEvaluation';
 
-export default function NewSampleModal({ isOpen, onClose, onSave }) {
-  // Material Category Segmented Toggle: 'Concrete' | 'Steel Rebar' | 'Aggregates' | 'Soil'
+const fieldCls =
+  'w-full px-3.5 py-2.5 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[44px]';
+const smallSelectCls =
+  'w-full px-2.5 py-2 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500';
+const labelCls = 'block text-xs font-extrabold text-black dark:text-white mb-1';
+const optCls = 'bg-white dark:bg-[#0a0f1d]';
+
+const CATEGORIES = ['Concrete', 'Steel', 'Aggregate', 'Soil'];
+const CATEGORY_LABELS = { Concrete: 'Concrete', Steel: 'Steel Rebar', Aggregate: 'Aggregates', Soil: 'Soil' };
+
+const Opts = ({ values, render }) =>
+  values.map((v) => (
+    <option key={v} value={v} className={optCls}>
+      {render ? render(v) : v}
+    </option>
+  ));
+
+export default function NewSampleModal({ isOpen, onClose, onSave, standards }) {
   const [materialCategory, setMaterialCategory] = useState('Concrete');
+  const [saving, setSaving] = useState(false);
 
-  // CONCRETE FIELDS
+  const concreteGrades = Object.keys(standards?.concreteGrades || {});
+  const steelGrades = Object.keys(standards?.steelGrades || {});
+  const aggregateTests = Object.keys(standards?.aggregateTests || {});
+
+  // CONCRETE
   const [concreteGrade, setConcreteGrade] = useState('M25');
-  const [customGrade, setCustomGrade] = useState('');
-  const [specimenType, setSpecimenType] = useState('150mm Cubes (Set of 3)');
+  const specimenType = '150mm Cubes (Set of 3)';
   const [towerBlock, setTowerBlock] = useState('Tower A');
   const [floorLevel, setFloorLevel] = useState('Floor 3');
   const [structuralElement, setStructuralElement] = useState('Column');
-  const [castingDate, setCastingDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [castingDate, setCastingDate] = useState(localToday);
   const [date7Day, setDate7Day] = useState('');
   const [date28Day, setDate28Day] = useState('');
 
-  // STEEL REBAR FIELDS
+  // STEEL
   const [steelGrade, setSteelGrade] = useState('Fe500D');
   const [rebarDiameter, setRebarDiameter] = useState('16mm');
-  const [deliveryChallanNo, setDeliveryChallanNo] = useState('DC-2026-8890');
-  const [steelLocation, setSteelLocation] = useState('Tower A - Floor 3 (Column C4)');
+  const [deliveryChallanNo, setDeliveryChallanNo] = useState('');
+  const [steelLocation, setSteelLocation] = useState('');
 
-  // AGGREGATES FIELDS
+  // AGGREGATE
   const [aggregateType, setAggregateType] = useState('Coarse Aggregates 20mm');
-  const [quarrySource, setQuarrySource] = useState('Vihang Crusher Quarry');
-  const [truckNo, setTruckNo] = useState('MH-04-JK-9912');
+  const [aggregateTest, setAggregateTest] = useState('');
+  const [aggregateUsage, setAggregateUsage] = useState('Wearing Course');
+  const [quarrySource, setQuarrySource] = useState('');
+  const [truckNo, setTruckNo] = useState('');
 
-  // SOIL FIELDS
-  const [soilLocation, setSoilLocation] = useState('Backfill Layer 2, Section B');
+  // SOIL
+  const [soilLocation, setSoilLocation] = useState('');
   const [targetMdd, setTargetMdd] = useState('1.85');
   const [targetOmc, setTargetOmc] = useState('12.5');
 
-  // Common Testing Date
-  const [testDate, setTestDate] = useState(() => new Date().toISOString().split('T')[0]);
-
-  // Photo Capture State
+  const [testDate, setTestDate] = useState(localToday);
   const [photoCaptured, setPhotoCaptured] = useState(null);
+  const [photoFile, setPhotoFile] = useState(null);
 
-  // Auto-calculate 7-day and 28-day dates for Concrete
+  // Default the aggregate test to the first one the backend knows about
+  useEffect(() => {
+    if (aggregateTests.length && !aggregateTests.includes(aggregateTest)) setAggregateTest(aggregateTests[0]);
+  }, [aggregateTests.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto 7-day / 28-day dates for concrete
   useEffect(() => {
     if (!castingDate) return;
-    const cast = new Date(castingDate);
-
-    const d7 = new Date(cast);
-    d7.setDate(d7.getDate() + 7);
-
-    const d28 = new Date(cast);
-    d28.setDate(d28.getDate() + 28);
-
-    setDate7Day(d7.toISOString().split('T')[0]);
-    setDate28Day(d28.toISOString().split('T')[0]);
+    const base = new Date(`${castingDate}T00:00:00`);
+    const fmt = (days) => {
+      const d = new Date(base);
+      d.setDate(d.getDate() + days);
+      return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+    };
+    setDate7Day(fmt(7));
+    setDate28Day(fmt(28));
   }, [castingDate]);
 
   if (!isOpen) return null;
+
+  const aggregateSpec = standards?.aggregateTests?.[aggregateTest];
+  const usageOptions = aggregateSpec?.max ? Object.keys(aggregateSpec.max) : [];
+  const effectiveUsage = usageOptions.includes(aggregateUsage) ? aggregateUsage : usageOptions[0];
 
   const handlePhotoUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
       setPhotoCaptured(URL.createObjectURL(file));
+      setPhotoFile(file);
     }
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-
-    let sampleData = {};
-    const sampleId = `TS-2026-${Math.floor(100 + Math.random() * 900)}`;
-
+  const buildPayload = () => {
     if (materialCategory === 'Concrete') {
-      const selectedGrade = concreteGrade === 'Custom' ? customGrade || 'M25' : concreteGrade;
-      const fullLocation = `${towerBlock} - ${floorLevel} (${structuralElement})`;
-      sampleData = {
-        id: sampleId,
-        materialCategory: 'Concrete',
-        gradeBadge: `${selectedGrade} Concrete Cubes`,
-        sampleName: `${selectedGrade} ${specimenType}`,
-        structureLocation: fullLocation,
+      return {
+        materialCategory,
+        grade: concreteGrade,
+        sampleName: `${concreteGrade} ${specimenType}`,
+        structureLocation: `${towerBlock} - ${floorLevel} (${structuralElement})`,
         castingDate,
-        testingDueDate: date7Day,
-        testType: '7-Day Compressive Strength',
-        targetStrength: `${selectedGrade.replace('M', '')}.0 N/mm²`,
-        achievedStrength: 'Pending Test',
-        ageStatus: 'Day 7 Due Soon',
-        status: 'Due Today',
-        labTechnician: 'Site QC In-Charge',
-        reportNo: `TR-NABL-${Math.floor(8000 + Math.random() * 1000)}`
+        details: { specimenType },
       };
-    } else if (materialCategory === 'Steel Rebar') {
-      const targetYield = steelGrade.includes('550') ? '550 N/mm²' : '500 N/mm²';
-      sampleData = {
-        id: sampleId,
-        materialCategory: 'Steel Rebar',
-        gradeBadge: `${steelGrade} TMT (${rebarDiameter})`,
+    }
+    if (materialCategory === 'Steel') {
+      return {
+        materialCategory,
+        grade: steelGrade,
         sampleName: `TMT Rebar ${steelGrade} ${rebarDiameter}`,
         structureLocation: steelLocation,
-        deliveryChallanNo,
-        rebarDiameter,
-        steelGrade,
         testingDueDate: testDate,
-        testType: 'Tensile & Bend/Rebend Test',
-        targetStrength: targetYield,
-        achievedStrength: 'Pending Test',
-        ageStatus: 'Testing Due Today',
-        status: 'Due Today',
-        labTechnician: 'Site QC In-Charge',
-        reportNo: `TR-STL-${Math.floor(8000 + Math.random() * 1000)}`
-      };
-    } else if (materialCategory === 'Aggregates') {
-      sampleData = {
-        id: sampleId,
-        materialCategory: 'Aggregates',
-        gradeBadge: aggregateType,
-        sampleName: `${aggregateType} (Quarry: ${quarrySource})`,
-        structureLocation: `Stockpile / Vehicle: ${truckNo}`,
-        quarrySource,
-        truckNo,
-        testingDueDate: testDate,
-        testType: 'Silt Content & IS 383 Grading',
-        targetStrength: 'Silt Content ≤ 8.0%',
-        achievedStrength: 'Pending Test',
-        ageStatus: 'Testing Due Today',
-        status: 'Due Today',
-        labTechnician: 'Site QC In-Charge',
-        reportNo: `TR-AGG-${Math.floor(8000 + Math.random() * 1000)}`
-      };
-    } else if (materialCategory === 'Soil') {
-      sampleData = {
-        id: sampleId,
-        materialCategory: 'Soil',
-        gradeBadge: 'Soil Field Density Test (FDT)',
-        sampleName: `Soil Compaction (${soilLocation})`,
-        structureLocation: soilLocation,
-        targetMdd: parseFloat(targetMdd) || 1.85,
-        targetOmc: parseFloat(targetOmc) || 12.5,
-        testingDueDate: testDate,
-        testType: 'Core Cutter Field Density Test',
-        targetStrength: `Compaction ≥ 95.0% (MDD: ${targetMdd} g/cc)`,
-        achievedStrength: 'Pending Test',
-        ageStatus: 'Testing Due Today',
-        status: 'Due Today',
-        labTechnician: 'Site QC In-Charge',
-        reportNo: `TR-SOL-${Math.floor(8000 + Math.random() * 1000)}`
+        details: { rebarDiameter, deliveryChallanNo },
       };
     }
-
-    onSave(sampleData);
-    onClose();
+    if (materialCategory === 'Aggregate') {
+      return {
+        materialCategory,
+        sampleName: `${aggregateType} (Quarry: ${quarrySource})`,
+        structureLocation: `Stockpile / Vehicle: ${truckNo}`,
+        testingDueDate: testDate,
+        details: {
+          aggregateType,
+          aggregateTestType: aggregateTest,
+          aggregateUsage: effectiveUsage,
+          quarrySource,
+          truckNo,
+        },
+      };
+    }
+    return {
+      materialCategory,
+      sampleName: `Soil Compaction (${soilLocation})`,
+      structureLocation: soilLocation,
+      testingDueDate: testDate,
+      details: {
+        testType: 'Core Cutter Field Density Test',
+        targetMdd: parseFloat(targetMdd),
+        targetOmc: parseFloat(targetOmc),
+      },
+    };
   };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const saved = await onSave({ ...buildPayload(), photoFile });
+      if (saved) {
+        setPhotoCaptured(null);
+        setPhotoFile(null);
+        onClose();
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const photoLabel = {
+    Concrete: 'Batch Slip / Concrete Pour Photo',
+    Steel: 'Rebar Bundle Tag Photo',
+    Aggregate: 'Vehicle Slip / Stockpile Photo',
+    Soil: 'Field Density Test Location Photo',
+  }[materialCategory];
 
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 overflow-y-auto">
-      {/* Backdrop */}
       <div className="fixed inset-0 bg-black/60 dark:bg-black/80 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Responsive Sheet */}
       <div className="relative w-full max-w-lg bg-white dark:bg-[#0a0f1d] border-t md:border border-black/15 dark:border-white/15 rounded-t-3xl md:rounded-3xl p-5 md:p-6 shadow-2xl z-10 max-h-[92vh] overflow-y-auto my-0 md:my-6">
-        
-        {/* Mobile Grab Handle Bar */}
         <div className="w-12 h-1.5 bg-black/20 dark:bg-white/20 rounded-full mx-auto mb-4 md:hidden" />
 
         <div className="flex items-center justify-between pb-3 border-b border-black/10 dark:border-white/10 mb-4">
@@ -168,7 +177,7 @@ export default function NewSampleModal({ isOpen, onClose, onSave }) {
             </div>
             <div>
               <h2 className="text-base md:text-lg font-bold text-black dark:text-white">Step 1: Register New Sample</h2>
-              <p className="text-xs text-black/50 dark:text-white/50">Conditional entry for {materialCategory}</p>
+              <p className="text-xs text-black/50 dark:text-white/50">Conditional entry for {CATEGORY_LABELS[materialCategory]}</p>
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-black/40 dark:text-white/40 hover:text-black dark:hover:text-white transition-colors cursor-pointer">
@@ -177,78 +186,41 @@ export default function NewSampleModal({ isOpen, onClose, onSave }) {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* 1. SEGMENTED MATERIAL SELECTOR TOGGLE BUTTONS */}
+          {/* Material category toggle */}
           <div>
-            <label className="block text-xs font-extrabold text-black dark:text-white mb-1.5 uppercase tracking-wider">
-              Material Category
-            </label>
+            <label className="block text-xs font-extrabold text-black dark:text-white mb-1.5 uppercase tracking-wider">Material Category</label>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 p-1 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-xl">
-              {['Concrete', 'Steel Rebar', 'Aggregates', 'Soil'].map((cat) => (
+              {CATEGORIES.map((cat) => (
                 <button
                   key={cat}
                   type="button"
                   onClick={() => setMaterialCategory(cat)}
                   className={`py-2.5 px-2 text-xs font-extrabold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
-                    materialCategory === cat
-                      ? 'bg-orange-600 text-white shadow-md scale-[1.02]'
-                      : 'text-black/70 dark:text-white/70 hover:text-black dark:hover:text-white'
+                    materialCategory === cat ? 'bg-orange-600 text-white shadow-md scale-[1.02]' : 'text-black/70 dark:text-white/70 hover:text-black dark:hover:text-white'
                   }`}
                 >
-                  {cat}
+                  {CATEGORY_LABELS[cat]}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* ========================================================================= */}
-          {/* A. CONCRETE CONDITIONAL FORM */}
-          {/* ========================================================================= */}
+          {/* ============ CONCRETE ============ */}
           {materialCategory === 'Concrete' && (
             <div className="space-y-4 pt-1">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                    Concrete Mix Grade
-                  </label>
-                  <select
-                    value={concreteGrade}
-                    onChange={(e) => setConcreteGrade(e.target.value)}
-                    className="w-full px-3.5 py-2.5 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[44px]"
-                  >
-                    <option value="M15" className="bg-white dark:bg-[#0a0f1d]">M15 (15 N/mm²)</option>
-                    <option value="M20" className="bg-white dark:bg-[#0a0f1d]">M20 (20 N/mm²)</option>
-                    <option value="M25" className="bg-white dark:bg-[#0a0f1d]">M25 (25 N/mm²)</option>
-                    <option value="M30" className="bg-white dark:bg-[#0a0f1d]">M30 (30 N/mm²)</option>
-                    <option value="M35" className="bg-white dark:bg-[#0a0f1d]">M35 (35 N/mm²)</option>
-                    <option value="M40" className="bg-white dark:bg-[#0a0f1d]">M40 (40 N/mm²)</option>
-                    <option value="Custom" className="bg-white dark:bg-[#0a0f1d]">Custom Spec</option>
+                  <label className={labelCls}>Concrete Mix Grade</label>
+                  <select value={concreteGrade} onChange={(e) => setConcreteGrade(e.target.value)} className={fieldCls}>
+                    <Opts values={concreteGrades} render={(g) => `${g} (${standards.concreteGrades[g]} N/mm²)`} />
                   </select>
-
-                  {concreteGrade === 'Custom' && (
-                    <input
-                      type="text"
-                      placeholder="e.g. M50 High Strength"
-                      value={customGrade}
-                      onChange={(e) => setCustomGrade(e.target.value)}
-                      className="mt-2 w-full px-3 py-2 text-xs font-bold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-lg text-black dark:text-white focus:outline-none"
-                    />
-                  )}
                 </div>
-
                 <div>
-                  <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                    Specimen Type
-                  </label>
-                  <input
-                    type="text"
-                    readOnly
-                    value={specimenType}
-                    className="w-full px-3.5 py-2.5 text-xs font-bold bg-black/10 dark:bg-white/10 border border-black/15 dark:border-white/15 rounded-xl text-black/70 dark:text-white/70 cursor-not-allowed min-h-[44px]"
-                  />
+                  <label className={labelCls}>Specimen Type</label>
+                  <input type="text" readOnly value={specimenType} className={`${fieldCls} !bg-black/10 dark:!bg-white/10 !text-black/70 dark:!text-white/70 cursor-not-allowed`} />
                 </div>
               </div>
 
-              {/* Cascading Location Picker */}
               <div>
                 <label className="block text-xs font-extrabold text-black dark:text-white mb-1.5 flex items-center gap-1">
                   <Building2 size={14} className="text-orange-500" />
@@ -257,65 +229,31 @@ export default function NewSampleModal({ isOpen, onClose, onSave }) {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div>
                     <span className="block text-[10px] font-bold text-black/50 dark:text-white/50 mb-0.5">Tower / Block</span>
-                    <select
-                      value={towerBlock}
-                      onChange={(e) => setTowerBlock(e.target.value)}
-                      className="w-full px-2.5 py-2 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    >
-                      <option value="Tower A" className="bg-white dark:bg-[#0a0f1d]">Tower A</option>
-                      <option value="Tower B" className="bg-white dark:bg-[#0a0f1d]">Tower B</option>
-                      <option value="Block C" className="bg-white dark:bg-[#0a0f1d]">Block C</option>
-                      <option value="Podium" className="bg-white dark:bg-[#0a0f1d]">Podium</option>
+                    <select value={towerBlock} onChange={(e) => setTowerBlock(e.target.value)} className={smallSelectCls}>
+                      <Opts values={['Tower A', 'Tower B', 'Block C', 'Podium']} />
                     </select>
                   </div>
-
                   <div>
                     <span className="block text-[10px] font-bold text-black/50 dark:text-white/50 mb-0.5">Floor Level</span>
-                    <select
-                      value={floorLevel}
-                      onChange={(e) => setFloorLevel(e.target.value)}
-                      className="w-full px-2.5 py-2 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    >
-                      <option value="Basement 1" className="bg-white dark:bg-[#0a0f1d]">Basement 1</option>
-                      <option value="Ground Floor" className="bg-white dark:bg-[#0a0f1d]">Ground Floor</option>
-                      <option value="Floor 1" className="bg-white dark:bg-[#0a0f1d]">Floor 1</option>
-                      <option value="Floor 2" className="bg-white dark:bg-[#0a0f1d]">Floor 2</option>
-                      <option value="Floor 3" className="bg-white dark:bg-[#0a0f1d]">Floor 3</option>
-                      <option value="Floor 4" className="bg-white dark:bg-[#0a0f1d]">Floor 4</option>
-                      <option value="Roof Slab" className="bg-white dark:bg-[#0a0f1d]">Roof Slab</option>
+                    <select value={floorLevel} onChange={(e) => setFloorLevel(e.target.value)} className={smallSelectCls}>
+                      <Opts values={['Basement 1', 'Ground Floor', 'Floor 1', 'Floor 2', 'Floor 3', 'Floor 4', 'Roof Slab']} />
                     </select>
                   </div>
-
                   <div>
                     <span className="block text-[10px] font-bold text-black/50 dark:text-white/50 mb-0.5">Element</span>
-                    <select
-                      value={structuralElement}
-                      onChange={(e) => setStructuralElement(e.target.value)}
-                      className="w-full px-2.5 py-2 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    >
-                      <option value="Column" className="bg-white dark:bg-[#0a0f1d]">Column</option>
-                      <option value="Beam" className="bg-white dark:bg-[#0a0f1d]">Beam</option>
-                      <option value="Slab" className="bg-white dark:bg-[#0a0f1d]">Slab</option>
-                      <option value="Footing" className="bg-white dark:bg-[#0a0f1d]">Footing</option>
-                      <option value="Shear Wall" className="bg-white dark:bg-[#0a0f1d]">Shear Wall</option>
+                    <select value={structuralElement} onChange={(e) => setStructuralElement(e.target.value)} className={smallSelectCls}>
+                      <Opts values={['Column', 'Beam', 'Slab', 'Footing', 'Shear Wall']} />
                     </select>
                   </div>
                 </div>
               </div>
 
-              {/* Casting Date & Auto 7/28 Day Cards */}
               <div>
                 <label className="block text-xs font-extrabold text-black dark:text-white mb-1 flex items-center justify-between">
                   <span>Casting Date</span>
                   <span className="text-[10px] text-black/50 dark:text-white/50">Tap to override</span>
                 </label>
-                <input
-                  type="date"
-                  value={castingDate}
-                  onChange={(e) => setCastingDate(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[44px]"
-                />
-
+                <input type="date" required value={castingDate} onChange={(e) => setCastingDate(e.target.value)} className={fieldCls} />
                 <div className="grid grid-cols-2 gap-2.5 mt-2.5">
                   <div className="bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 p-2.5 rounded-xl text-xs">
                     <span className="text-[10px] font-bold text-orange-600 dark:text-orange-400 block uppercase">Auto 7-Day Test</span>
@@ -330,243 +268,126 @@ export default function NewSampleModal({ isOpen, onClose, onSave }) {
             </div>
           )}
 
-          {/* ========================================================================= */}
-          {/* B. STEEL REBAR CONDITIONAL FORM */}
-          {/* ========================================================================= */}
-          {materialCategory === 'Steel Rebar' && (
+          {/* ============ STEEL ============ */}
+          {materialCategory === 'Steel' && (
             <div className="space-y-4 pt-1">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Steel Grade Dropdown */}
                 <div>
-                  <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                    Steel Grade
-                  </label>
-                  <select
-                    value={steelGrade}
-                    onChange={(e) => setSteelGrade(e.target.value)}
-                    className="w-full px-3.5 py-2.5 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[44px]"
-                  >
-                    <option value="Fe500" className="bg-white dark:bg-[#0a0f1d]">Fe500 TMT</option>
-                    <option value="Fe500D" className="bg-white dark:bg-[#0a0f1d]">Fe500D Ductile TMT</option>
-                    <option value="Fe550" className="bg-white dark:bg-[#0a0f1d]">Fe550 High Strength</option>
-                    <option value="Fe550D" className="bg-white dark:bg-[#0a0f1d]">Fe550D High Ductility</option>
-                    <option value="Custom" className="bg-white dark:bg-[#0a0f1d]">Custom Grade</option>
+                  <label className={labelCls}>Steel Grade</label>
+                  <select value={steelGrade} onChange={(e) => setSteelGrade(e.target.value)} className={fieldCls}>
+                    <Opts values={steelGrades} render={(g) => `${g} (min Fy ${standards.steelGrades[g].minYield})`} />
                   </select>
                 </div>
-
-                {/* Rebar Diameter Dropdown */}
                 <div>
-                  <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                    Bar Diameter (mm)
-                  </label>
-                  <select
-                    value={rebarDiameter}
-                    onChange={(e) => setRebarDiameter(e.target.value)}
-                    className="w-full px-3.5 py-2.5 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[44px]"
-                  >
-                    {['8mm', '10mm', '12mm', '16mm', '20mm', '25mm', '28mm', '32mm'].map((dia) => (
-                      <option key={dia} value={dia} className="bg-white dark:bg-[#0a0f1d]">
-                        {dia}
-                      </option>
-                    ))}
+                  <label className={labelCls}>Bar Diameter (mm)</label>
+                  <select value={rebarDiameter} onChange={(e) => setRebarDiameter(e.target.value)} className={fieldCls}>
+                    <Opts values={['8mm', '10mm', '12mm', '16mm', '20mm', '25mm', '28mm', '32mm']} />
                   </select>
                 </div>
               </div>
-
               <div>
-                <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                  Delivery Challan / Batch No
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. DC-2026-8890"
-                  value={deliveryChallanNo}
-                  onChange={(e) => setDeliveryChallanNo(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[44px]"
-                />
+                <label className={labelCls}>Delivery Challan / Batch No</label>
+                <input type="text" required placeholder="e.g. DC-2026-8890" value={deliveryChallanNo} onChange={(e) => setDeliveryChallanNo(e.target.value)} className={fieldCls} />
               </div>
-
               <div>
-                <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                  Structural Location / Usage Area
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Tower A - Floor 3 (Column C4 Main Steel)"
-                  value={steelLocation}
-                  onChange={(e) => setSteelLocation(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[44px]"
-                />
+                <label className={labelCls}>Structural Location / Usage Area</label>
+                <input type="text" required placeholder="e.g. Tower A - Floor 3 (Column C4 Main Steel)" value={steelLocation} onChange={(e) => setSteelLocation(e.target.value)} className={fieldCls} />
               </div>
             </div>
           )}
 
-          {/* ========================================================================= */}
-          {/* C. AGGREGATES CONDITIONAL FORM */}
-          {/* ========================================================================= */}
-          {materialCategory === 'Aggregates' && (
+          {/* ============ AGGREGATE ============ */}
+          {materialCategory === 'Aggregate' && (
             <div className="space-y-4 pt-1">
               <div>
-                <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                  Aggregate Classification / Type
-                </label>
-                <select
-                  value={aggregateType}
-                  onChange={(e) => setAggregateType(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[44px]"
-                >
-                  <option value="Coarse Aggregates 20mm" className="bg-white dark:bg-[#0a0f1d]">Coarse Aggregates 20mm</option>
-                  <option value="Coarse Aggregates 10mm" className="bg-white dark:bg-[#0a0f1d]">Coarse Aggregates 10mm</option>
-                  <option value="Fine Sand (River Sand)" className="bg-white dark:bg-[#0a0f1d]">Fine Sand (River Sand)</option>
-                  <option value="M-Sand (Manufactured Sand)" className="bg-white dark:bg-[#0a0f1d]">M-Sand (Manufactured Sand)</option>
+                <label className={labelCls}>Aggregate Classification / Type</label>
+                <select value={aggregateType} onChange={(e) => setAggregateType(e.target.value)} className={fieldCls}>
+                  <Opts values={['Coarse Aggregates 20mm', 'Coarse Aggregates 10mm', 'Fine Sand (River Sand)', 'M-Sand (Manufactured Sand)']} />
                 </select>
               </div>
-
-              <div>
-                <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                  Quarry / Crusher Source Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Vihang Crusher Quarry, Thane"
-                  value={quarrySource}
-                  onChange={(e) => setQuarrySource(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[44px]"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>Test to Perform (IS 2386)</label>
+                  <select value={aggregateTest} onChange={(e) => setAggregateTest(e.target.value)} className={fieldCls}>
+                    <Opts values={aggregateTests} />
+                  </select>
+                </div>
+                {usageOptions.length > 0 && (
+                  <div>
+                    <label className={labelCls}>Intended Usage</label>
+                    <select value={effectiveUsage} onChange={(e) => setAggregateUsage(e.target.value)} className={fieldCls}>
+                      <Opts values={usageOptions} render={(u) => `${u} (≤ ${aggregateSpec.max[u]}${aggregateSpec.unit})`} />
+                    </select>
+                  </div>
+                )}
               </div>
-
               <div>
-                <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                  Truck / Tipper Vehicle Number
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. MH-04-JK-9912"
-                  value={truckNo}
-                  onChange={(e) => setTruckNo(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[44px]"
-                />
+                <label className={labelCls}>Quarry / Crusher Source Name</label>
+                <input type="text" required placeholder="e.g. Vihang Crusher Quarry, Thane" value={quarrySource} onChange={(e) => setQuarrySource(e.target.value)} className={fieldCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Truck / Tipper Vehicle Number</label>
+                <input type="text" required placeholder="e.g. MH-04-JK-9912" value={truckNo} onChange={(e) => setTruckNo(e.target.value)} className={fieldCls} />
               </div>
             </div>
           )}
 
-          {/* ========================================================================= */}
-          {/* D. SOIL CONDITIONAL FORM */}
-          {/* ========================================================================= */}
+          {/* ============ SOIL ============ */}
           {materialCategory === 'Soil' && (
             <div className="space-y-4 pt-1">
               <div>
-                <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                  Subgrade / Backfill Location & Layer
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Backfill Layer 2, Section B"
-                  value={soilLocation}
-                  onChange={(e) => setSoilLocation(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[44px]"
-                />
+                <label className={labelCls}>Subgrade / Backfill Location & Layer</label>
+                <input type="text" required placeholder="e.g. Backfill Layer 2, Section B" value={soilLocation} onChange={(e) => setSoilLocation(e.target.value)} className={fieldCls} />
               </div>
-
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                    Target MDD (g/cc)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    inputMode="decimal"
-                    required
-                    placeholder="e.g. 1.85"
-                    value={targetMdd}
-                    onChange={(e) => setTargetMdd(e.target.value)}
-                    className="w-full px-3.5 py-2.5 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[44px]"
-                  />
+                  <label className={labelCls}>Target MDD (g/cc)</label>
+                  <input type="number" step="0.01" inputMode="decimal" required placeholder="e.g. 1.85" value={targetMdd} onChange={(e) => setTargetMdd(e.target.value)} className={fieldCls} />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                    Target OMC (%)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    inputMode="decimal"
-                    required
-                    placeholder="e.g. 12.5"
-                    value={targetOmc}
-                    onChange={(e) => setTargetOmc(e.target.value)}
-                    className="w-full px-3.5 py-2.5 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[44px]"
-                  />
+                  <label className={labelCls}>Target OMC (%)</label>
+                  <input type="number" step="0.1" inputMode="decimal" required placeholder="e.g. 12.5" value={targetOmc} onChange={(e) => setTargetOmc(e.target.value)} className={fieldCls} />
                 </div>
               </div>
             </div>
           )}
 
-          {/* COMMON TESTING DATE (for Non-Concrete materials) */}
           {materialCategory !== 'Concrete' && (
             <div>
-              <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                Scheduled Testing Date
-              </label>
-              <input
-                type="date"
-                value={testDate}
-                onChange={(e) => setTestDate(e.target.value)}
-                className="w-full px-3.5 py-2.5 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[44px]"
-              />
+              <label className={labelCls}>Scheduled Testing Date</label>
+              <input type="date" value={testDate} onChange={(e) => setTestDate(e.target.value)} className={fieldCls} />
             </div>
           )}
 
-          {/* CAMERA UPLOAD BUTTON (LABEL CHANGES CONDITIONALLY) */}
+          {/* Camera upload */}
           <div>
-            <label className="block text-xs font-extrabold text-black dark:text-white mb-1.5">
-              {materialCategory === 'Concrete' && 'Batch Slip / Concrete Pour Photo'}
-              {materialCategory === 'Steel Rebar' && 'Rebar Bundle Tag Photo'}
-              {materialCategory === 'Aggregates' && 'Vehicle Slip / Stockpile Photo'}
-              {materialCategory === 'Soil' && 'Field Density Test Location Photo'}
-            </label>
-
+            <label className="block text-xs font-extrabold text-black dark:text-white mb-1.5">{photoLabel}</label>
             <label className="flex items-center justify-center gap-2 w-full min-h-[48px] p-3 bg-black/5 dark:bg-white/5 border border-dashed border-black/20 dark:border-white/20 hover:border-orange-500 rounded-xl text-xs font-extrabold text-black dark:text-white cursor-pointer transition-colors">
               <Camera size={18} className="text-orange-500" />
               <span>
-                {photoCaptured
-                  ? 'Photo Attached ✓ (Tap to retake)'
-                  : `Snap Photo of ${materialCategory === 'Steel Rebar' ? 'Bundle Tag' : 'Delivery Slip'}`}
+                {photoCaptured ? 'Photo Attached ✓ (Tap to retake)' : `Snap Photo of ${materialCategory === 'Steel' ? 'Bundle Tag' : 'Delivery Slip'}`}
               </span>
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handlePhotoUpload}
-                className="hidden"
-              />
+              <input type="file" accept="image/*" capture="environment" onChange={handlePhotoUpload} className="hidden" />
             </label>
-
             {photoCaptured && (
               <div className="mt-2 relative w-full h-24 rounded-xl overflow-hidden border border-black/10 dark:border-white/10">
                 <img src={photoCaptured} alt="Attachment" className="w-full h-full object-cover" />
-                <span className="absolute bottom-1 right-1 text-[9px] font-bold bg-black/70 text-white px-2 py-0.5 rounded">
-                  Captured
-                </span>
+                <span className="absolute bottom-1 right-1 text-[9px] font-bold bg-black/70 text-white px-2 py-0.5 rounded">Captured</span>
               </div>
             )}
           </div>
 
-          {/* Form Actions */}
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-black/10 dark:border-white/10">
             <Button variant="secondary" onClick={onClose} type="button" className="!py-3 flex-1 min-h-[48px]">
               Cancel
             </Button>
-            <Button variant="primary" type="submit" className="!py-3 flex-1 min-h-[48px]">
-              Register & Save
-            </Button>
+            <button
+              type="submit"
+              disabled={saving || !standards}
+              className="inline-flex items-center justify-center font-medium text-sm rounded-md bg-black dark:bg-white text-white dark:text-black shadow-md px-5 !py-3 flex-1 min-h-[48px] hover:opacity-90 transition-all active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {saving ? 'Saving…' : 'Register & Save'}
+            </button>
           </div>
         </form>
       </div>
