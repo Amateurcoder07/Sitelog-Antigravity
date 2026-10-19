@@ -1,160 +1,180 @@
-import React, { useState, useMemo } from 'react';
-import { X, CheckCircle2, XCircle, ShieldAlert, Calculator } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, CheckCircle2, XCircle, ShieldAlert, Calculator, Lock, History, AlertTriangle } from 'lucide-react';
 import Button from '../Button';
+import {
+  averageWithOutlierCheck,
+  previewSteel,
+  previewAggregate,
+  previewSoil,
+} from '../../utils/labEvaluation';
 
-export default function RecordResultModal({ isOpen, onClose, sample, onSave, onOpenNcr }) {
+const inputCls =
+  'w-full px-3 py-3 text-sm font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[48px] disabled:opacity-60 disabled:cursor-not-allowed';
+const labelCls = 'block text-xs font-extrabold text-black dark:text-white mb-1';
+const subLabelCls = 'block text-[10px] font-extrabold text-black/50 dark:text-white/50 mb-1';
+
+const TONES = {
+  pass: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-400',
+  fail: 'bg-red-500/15 border-red-500/40 text-red-600 dark:text-red-400',
+  warn: 'bg-amber-500/15 border-amber-500/40 text-amber-600 dark:text-amber-400',
+};
+const TONE_TEXT = {
+  pass: 'text-emerald-700 dark:text-emerald-300',
+  fail: 'text-red-700 dark:text-red-300',
+  warn: 'text-amber-700 dark:text-amber-300',
+};
+
+function Banner({ tone, title, text, onNcr, busy }) {
+  const Icon = tone === 'pass' ? CheckCircle2 : tone === 'fail' ? XCircle : AlertTriangle;
+  return (
+    <div className={`border-2 p-4 rounded-2xl space-y-3 ${TONES[tone]}`}>
+      <div className="flex items-center gap-2 font-black text-base">
+        <Icon size={20} />
+        <span>{title}</span>
+      </div>
+      <p className={`text-xs font-semibold ${TONE_TEXT[tone]}`}>{text}</p>
+      {tone === 'fail' && onNcr && (
+        <button
+          type="button"
+          onClick={onNcr}
+          disabled={busy}
+          className="w-full inline-flex items-center justify-center rounded-md bg-red-600 hover:bg-red-700 text-white text-sm font-extrabold py-3 gap-2 min-h-[48px] cursor-pointer transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <ShieldAlert size={18} /> Save & Generate NCR Draft
+        </button>
+      )}
+    </div>
+  );
+}
+
+const pad3 = (arr) => [0, 1, 2].map((i) => (arr && arr[i] != null ? String(arr[i]) : ''));
+const str = (v) => (v === undefined || v === null ? '' : String(v));
+
+export default function RecordResultModal({ isOpen, onClose, sample, standards, onSave, onOpenNcr }) {
   const category = sample?.materialCategory || 'Concrete';
+  const rd = sample?.resultData || {};
+  const history = Array.isArray(rd.history) ? rd.history : [];
+  const last = history.length ? history[history.length - 1].inputs || {} : {};
+  const canEdit = !!sample?.canEdit;
 
-  // 1. CONCRETE STATE
-  const [cube1, setCube1] = useState('');
-  const [cube2, setCube2] = useState('');
-  const [cube3, setCube3] = useState('');
+  // Concrete
+  const [day, setDay] = useState(() => (rd.day7Readings?.length ? '28' : '7'));
+  const [r7, setR7] = useState(() => pad3(rd.day7Readings));
+  const [r28, setR28] = useState(() => pad3(rd.day28Readings));
+  // Steel
+  const [weightPerMeter, setWeightPerMeter] = useState(() => str(last.weightPerMeter));
+  const [yieldStress, setYieldStress] = useState(() => str(last.yieldStrength));
+  const [tensileStrength, setTensileStrength] = useState(() => str(last.ultimateStrength));
+  const [elongation, setElongation] = useState(() => str(last.elongation));
+  const [bendTest, setBendTest] = useState(() => last.bendTest || 'Pass');
+  // Aggregate
+  const [aggValue, setAggValue] = useState(() => str(last.value));
+  // Soil
+  const [wetDensity, setWetDensity] = useState(() => str(last.fieldWetDensity));
+  const [moisture, setMoisture] = useState(() => str(last.fieldMoisture));
 
-  // 2. STEEL REBAR STATE
-  const [weightPerMeter, setWeightPerMeter] = useState('');
-  const [yieldStress, setYieldStress] = useState('');
-  const [tensileStrength, setTensileStrength] = useState('');
-  const [elongation, setElongation] = useState('');
-  const [bendRebendPass, setBendRebendPass] = useState(true);
-
-  // 3. AGGREGATES STATE
-  const [siltVolume, setSiltVolume] = useState('');
-  const [totalVolume, setTotalVolume] = useState('100');
-  const [is383Conforming, setIs383Conforming] = useState(true);
-
-  // 4. SOIL STATE
-  const [fieldWetDensity, setFieldWetDensity] = useState('');
-  const [fieldMoistureContent, setFieldMoistureContent] = useState('');
-
-  const [notes, setNotes] = useState('');
-
-  // Extract target numeric value e.g. "25.0 N/mm²" -> 25.0
-  const targetNum = useMemo(() => {
-    if (!sample?.targetStrength) return 25.0;
-    const match = sample.targetStrength.match(/[\d.]+/);
-    return match ? parseFloat(match[0]) : 25.0;
-  }, [sample]);
-
-  // =========================================================================
-  // CALCULATIONS & PASS/FAIL EVALUATIONS PER MATERIAL
-  // =========================================================================
-
-  // CONCRETE EVALUATION
-  const concreteAvg = useMemo(() => {
-    const vals = [parseFloat(cube1), parseFloat(cube2), parseFloat(cube3)].filter((v) => !isNaN(v) && v > 0);
-    if (vals.length === 0) return 0;
-    return parseFloat((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1));
-  }, [cube1, cube2, cube3]);
-
-  const isConcretePassed = concreteAvg >= targetNum;
-  const isConcreteEvaluated = concreteAvg > 0;
-
-  // STEEL REBAR EVALUATION
-  const yieldNum = parseFloat(yieldStress) || 0;
-  const tensileNum = parseFloat(tensileStrength) || 0;
-  const targetYieldNum = sample?.targetStrength?.includes('550') ? 550 : 500;
-  const isSteelPassed = yieldNum >= targetYieldNum && tensileNum > yieldNum && bendRebendPass;
-  const isSteelEvaluated = yieldNum > 0;
-
-  // AGGREGATES EVALUATION
-  const siltVolNum = parseFloat(siltVolume) || 0;
-  const totalVolNum = parseFloat(totalVolume) || 100;
-  const siltPercentage = useMemo(() => {
-    if (totalVolNum <= 0) return 0;
-    return parseFloat(((siltVolNum / totalVolNum) * 100).toFixed(2));
-  }, [siltVolNum, totalVolNum]);
-
-  const isAggregatesPassed = siltPercentage <= 8.0 && is383Conforming;
-  const isAggregatesEvaluated = siltVolNum > 0;
-
-  // SOIL EVALUATION
-  const wetDensityNum = parseFloat(fieldWetDensity) || 0;
-  const moistureNum = parseFloat(fieldMoistureContent) || 0;
-  const targetMddNum = sample?.targetMdd || 1.85;
-
-  const fieldDryDensity = useMemo(() => {
-    if (wetDensityNum <= 0) return 0;
-    const fdd = wetDensityNum / (1 + moistureNum / 100);
-    return parseFloat(fdd.toFixed(3));
-  }, [wetDensityNum, moistureNum]);
-
-  const compactionPercentage = useMemo(() => {
-    if (targetMddNum <= 0 || fieldDryDensity <= 0) return 0;
-    const comp = (fieldDryDensity / targetMddNum) * 100;
-    return parseFloat(comp.toFixed(1));
-  }, [fieldDryDensity, targetMddNum]);
-
-  const isSoilPassed = compactionPercentage >= 95.0;
-  const isSoilEvaluated = compactionPercentage > 0;
+  const [saving, setSaving] = useState(false);
 
   if (!isOpen || !sample) return null;
 
-  const handleSubmit = (e) => {
+  // ---------- previews ----------
+  const grade = sample.grade;
+  const concreteTarget = standards?.concreteGrades?.[grade] ?? null;
+  const readings = day === '7' ? r7 : r28;
+  const readingsFilled = readings.every((v) => v !== '' && Number(v) > 0);
+  const concreteCalc = readings.some((v) => Number(v) > 0) ? averageWithOutlierCheck(readings) : null;
+
+  const steelPreview = previewSteel({ grade, yieldStrength: yieldStress, ultimateStrength: tensileStrength, elongation, bendTest }, standards);
+  const aggTestType = sample.details?.aggregateTestType;
+  const aggUsage = sample.details?.aggregateUsage;
+  const aggUnit = standards?.aggregateTests?.[aggTestType]?.unit || '';
+  const aggPreview = previewAggregate({ testType: aggTestType, usage: aggUsage, value: aggValue }, standards);
+  const soilPreview = previewSoil({ wetDensity, moisture, targetMdd: sample.details?.targetMdd });
+
+  let canSave = false;
+  if (category === 'Concrete') canSave = readingsFilled;
+  if (category === 'Steel') canSave = !!steelPreview && elongation !== '' && tensileStrength !== '';
+  if (category === 'Aggregate') canSave = aggValue !== '' && !!aggPreview;
+  if (category === 'Soil') canSave = !!soilPreview;
+
+  const buildPayload = () => {
+    if (category === 'Concrete') return { day, readings: readings.map(Number) };
+    if (category === 'Steel') {
+      return {
+        yieldStrength: Number(yieldStress),
+        ultimateStrength: Number(tensileStrength),
+        elongation: Number(elongation),
+        bendTest,
+        weightPerMeter: weightPerMeter === '' ? undefined : Number(weightPerMeter),
+      };
+    }
+    if (category === 'Aggregate') return { value: Number(aggValue) };
+    return { fieldWetDensity: Number(wetDensity), fieldMoisture: Number(moisture) };
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      return await onSave(sample, buildPayload());
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!canEdit || !canSave) return;
+    const saved = await save();
+    if (saved) onClose();
+  };
 
-    let finalStatus = 'Pass';
-    let achievedText = '';
-
+  const failureReason = () => {
     if (category === 'Concrete') {
-      if (!isConcreteEvaluated) return;
-      finalStatus = isConcretePassed ? 'Pass' : 'Fail';
-      achievedText = `${concreteAvg} N/mm²`;
-    } else if (category === 'Steel Rebar') {
-      if (!isSteelEvaluated) return;
-      finalStatus = isSteelPassed ? 'Pass' : 'Fail';
-      achievedText = `${yieldNum} N/mm² (Yield) / ${tensileNum} N/mm² (UT)`;
-    } else if (category === 'Aggregates') {
-      if (!isAggregatesEvaluated) return;
-      finalStatus = isAggregatesPassed ? 'Pass' : 'Fail';
-      achievedText = `Silt ${siltPercentage}% (${is383Conforming ? 'IS 383 OK' : 'IS 383 Fail'})`;
-    } else if (category === 'Soil') {
-      if (!isSoilEvaluated) return;
-      finalStatus = isSoilPassed ? 'Pass' : 'Fail';
-      achievedText = `Compaction ${compactionPercentage}% (${fieldDryDensity} g/cc)`;
+      return `28-day target of ${concreteTarget} N/mm² (${grade}) not achieved. Average strength was ${concreteCalc?.average} N/mm².`;
     }
+    if (category === 'Steel') {
+      const failed = Object.entries(steelPreview?.checks || {}).filter(([, ok]) => !ok).map(([k]) => k);
+      return `Steel ${grade} failed IS 1786 checks: ${failed.join(', ')}.`;
+    }
+    if (category === 'Aggregate') {
+      return `${aggTestType} result ${aggValue}${aggUnit} exceeds the ${aggPreview?.limit}${aggUnit} limit for ${aggUsage} (IS 2386).`;
+    }
+    return `Soil compaction ${soilPreview?.compaction}% is below the required 95% of MDD.`;
+  };
 
-    const updatedSample = {
-      ...sample,
-      achievedStrength: achievedText,
-      status: finalStatus,
-      ageStatus: finalStatus === 'Pass' ? 'Completed' : 'Failed / NCR',
-      labTechnician: 'Site QC In-Charge'
-    };
-
-    onSave(updatedSample);
+  const handleGenerateNcr = async () => {
+    if (!canEdit || !canSave) return;
+    const saved = await save();
+    if (!saved) return;
+    onOpenNcr?.({
+      title: `${category} test failure on ${sample.sampleName} (${sample.structureLocation})`,
+      sampleId: sample.id,
+      severity: 'High',
+      correctiveAction: failureReason(),
+    });
     onClose();
   };
 
-  const handleGenerateNcrDraft = () => {
-    if (onOpenNcr) {
-      let failureReason = '';
-      if (category === 'Concrete') {
-        failureReason = `Target of ${targetNum} N/mm² failed. Average strength achieved was ${concreteAvg} N/mm².`;
-      } else if (category === 'Steel Rebar') {
-        failureReason = `Yield strength ${yieldNum} N/mm² or Bend/Rebend test failed required spec.`;
-      } else if (category === 'Aggregates') {
-        failureReason = `Silt Content ${siltPercentage}% exceeds maximum allowed 8.0% threshold according to IS 383.`;
-      } else if (category === 'Soil') {
-        failureReason = `Soil Compaction ${compactionPercentage}% is below required minimum 95.0% MDD specification.`;
-      }
+  const alreadyRecorded =
+    category === 'Concrete' ? (day === '7' ? !!rd.day7Readings?.length : !!rd.day28Readings?.length) : history.length > 0;
 
-      onOpenNcr({
-        title: `${category} Test Failure on ${sample.sampleName} (${sample.structureLocation})`,
-        sampleId: sample.id,
-        severity: 'High',
-        correctiveAction: failureReason,
-        assignedTo: 'Er. Rajesh Kumar'
-      });
-    }
-    onClose();
-  };
+  const numInput = (value, setter, placeholder, step = '0.1') => (
+    <input
+      type="number"
+      step={step}
+      inputMode="decimal"
+      placeholder={placeholder}
+      value={value}
+      onChange={(e) => setter(e.target.value)}
+      disabled={!canEdit}
+      className={inputCls}
+    />
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
-      {/* Backdrop */}
       <div className="fixed inset-0 bg-black/60 dark:bg-black/80 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Modal Surface */}
       <div className="relative w-full max-w-lg bg-white dark:bg-[#0a0f1d] border border-black/15 dark:border-white/15 rounded-3xl p-5 md:p-6 shadow-2xl z-10 my-6 max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between pb-3 border-b border-black/10 dark:border-white/10 mb-4">
           <div className="flex items-center gap-2.5">
@@ -175,470 +195,244 @@ export default function RecordResultModal({ isOpen, onClose, sample, onSave, onO
         <div className="bg-black/5 dark:bg-white/5 p-3.5 rounded-2xl mb-4 text-xs space-y-1">
           <p className="font-extrabold text-black dark:text-white">Specimen: {sample.sampleName}</p>
           <p className="text-black/60 dark:text-white/60">Location: {sample.structureLocation}</p>
-          <p className="text-black/60 dark:text-white/60">Required Target Spec: <strong className="text-black dark:text-white font-extrabold">{sample.targetStrength}</strong></p>
+          <p className="text-black/60 dark:text-white/60">
+            Required Target Spec: <strong className="text-black dark:text-white font-extrabold">{sample.targetStrength}</strong>
+            {sample.standardCode ? <span className="text-black/40 dark:text-white/40"> · {sample.standardCode}</span> : null}
+          </p>
+          <p className="text-black/60 dark:text-white/60">
+            Registered by: <strong className="text-black dark:text-white font-extrabold">{sample.registeredBy || '—'}</strong>
+          </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {!canEdit && (
+          <div className="flex items-start gap-2 p-3 mb-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs font-semibold text-amber-700 dark:text-amber-300">
+            <Lock size={14} className="shrink-0 mt-0.5" />
+            <span>Read-only. Only {sample.registeredBy || 'the person who registered this sample'} can record or edit its readings.</span>
+          </div>
+        )}
 
-          {/* ========================================================================= */}
-          {/* A. CONCRETE FORM */}
-          {/* ========================================================================= */}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* ===================== CONCRETE ===================== */}
           {category === 'Concrete' && (
             <div className="space-y-4">
-              <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                3-Cube Failure Loads / Compressive Strengths (N/mm²)
+              <div className="grid grid-cols-2 gap-2 p-1 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-xl">
+                {[['7', '7-Day Test'], ['28', '28-Day Test']].map(([d, label]) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setDay(d)}
+                    className={`py-2.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${
+                      day === d ? 'bg-orange-600 text-white shadow-md' : 'text-black/70 dark:text-white/70'
+                    }`}
+                  >
+                    {label}
+                    {(d === '7' ? rd.day7Readings?.length : rd.day28Readings?.length) ? ' ✓' : ''}
+                  </button>
+                ))}
+              </div>
+
+              {alreadyRecorded && canEdit && (
+                <p className="text-[11px] font-semibold text-black/60 dark:text-white/60">
+                  A {day}-day reading is already recorded. You can correct it — the earlier entry stays in the reading history below.
+                </p>
+              )}
+
+              <label className={labelCls}>
+                {day}-Day Cube Compressive Strengths (N/mm²) — set of 3
               </label>
               <div className="grid grid-cols-3 gap-2.5">
-                <div>
-                  <span className="block text-[10px] font-extrabold text-black/50 dark:text-white/50 mb-1">Cube 1</span>
-                  <input
-                    type="number"
-                    step="0.1"
-                    inputMode="decimal"
-                    placeholder="e.g. 26.5"
-                    value={cube1}
-                    onChange={(e) => setCube1(e.target.value)}
-                    className="w-full px-3 py-3 text-sm font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[48px]"
-                  />
-                </div>
-                <div>
-                  <span className="block text-[10px] font-extrabold text-black/50 dark:text-white/50 mb-1">Cube 2</span>
-                  <input
-                    type="number"
-                    step="0.1"
-                    inputMode="decimal"
-                    placeholder="e.g. 27.8"
-                    value={cube2}
-                    onChange={(e) => setCube2(e.target.value)}
-                    className="w-full px-3 py-3 text-sm font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[48px]"
-                  />
-                </div>
-                <div>
-                  <span className="block text-[10px] font-extrabold text-black/50 dark:text-white/50 mb-1">Cube 3</span>
-                  <input
-                    type="number"
-                    step="0.1"
-                    inputMode="decimal"
-                    placeholder="e.g. 27.3"
-                    value={cube3}
-                    onChange={(e) => setCube3(e.target.value)}
-                    className="w-full px-3 py-3 text-sm font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[48px]"
-                  />
-                </div>
+                {[0, 1, 2].map((i) => (
+                  <div key={i}>
+                    <span className={subLabelCls}>Cube {i + 1}</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      inputMode="decimal"
+                      placeholder={['e.g. 26.5', 'e.g. 27.8', 'e.g. 27.3'][i]}
+                      value={readings[i]}
+                      onChange={(e) => {
+                        const next = [...readings];
+                        next[i] = e.target.value;
+                        (day === '7' ? setR7 : setR28)(next);
+                      }}
+                      disabled={!canEdit}
+                      className={inputCls}
+                    />
+                  </div>
+                ))}
               </div>
 
-              {isConcreteEvaluated && (
-                <div className="space-y-3 pt-2">
+              {concreteCalc && (
+                <div className="space-y-3 pt-1">
                   <div className="flex items-center justify-between p-3 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-xl text-xs">
                     <span className="font-bold text-black dark:text-white">Calculated Average Strength:</span>
-                    <span className="text-base font-black text-black dark:text-white">{concreteAvg} N/mm²</span>
+                    <span className="text-base font-black text-black dark:text-white">
+                      {concreteCalc.average != null ? `${concreteCalc.average} N/mm²` : '—'}
+                    </span>
                   </div>
 
-                  {isConcretePassed ? (
-                    <div className="bg-emerald-500/15 border-2 border-emerald-500/40 p-4 rounded-2xl text-emerald-600 dark:text-emerald-400 space-y-1">
-                      <div className="flex items-center gap-2 font-black text-base">
-                        <CheckCircle2 size={20} />
-                        <span>PASSED SPECIFICATION</span>
-                      </div>
-                      <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-                        Average {concreteAvg} N/mm² meets required target of {targetNum} N/mm².
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="bg-red-500/15 border-2 border-red-500/40 p-4 rounded-2xl text-red-600 dark:text-red-400 space-y-3">
-                      <div className="flex items-center gap-2 font-black text-base">
-                        <XCircle size={20} />
-                        <span>SPECIFICATION FAILED</span>
-                      </div>
-                      <p className="text-xs font-semibold text-red-700 dark:text-red-300">
-                        Average {concreteAvg} N/mm² is below required target of {targetNum} N/mm².
-                      </p>
-                      <Button
-                        type="button"
-                        variant="primary"
-                        onClick={handleGenerateNcrDraft}
-                        className="w-full !bg-red-600 hover:!bg-red-700 text-white font-extrabold !py-3 gap-2 min-h-[48px]"
-                      >
-                        <ShieldAlert size={18} /> Generate NCR Draft
-                      </Button>
-                    </div>
+                  {concreteCalc.invalid ? (
+                    <Banner tone="warn" title="RETEST REQUIRED" text="More than one specimen deviates >15% from the mean (IS 516 cl. 8). The set is inconclusive." />
+                  ) : concreteCalc.discarded.length > 0 ? (
+                    <Banner tone="warn" title="OUTLIER DISCARDED" text={`${concreteCalc.discarded[0]} N/mm² deviates >15% from the mean and is excluded; the other two are averaged.`} />
+                  ) : null}
+
+                  {!concreteCalc.invalid && day === '28' && concreteTarget != null && readingsFilled && (
+                    concreteCalc.average >= concreteTarget ? (
+                      <Banner tone="pass" title="PASSED SPECIFICATION" text={`Average ${concreteCalc.average} N/mm² meets the ${grade} target of ${concreteTarget} N/mm².`} />
+                    ) : (
+                      <Banner tone="fail" title="SPECIFICATION FAILED" text={`Average ${concreteCalc.average} N/mm² is below the ${grade} target of ${concreteTarget} N/mm².`} onNcr={handleGenerateNcr} busy={saving || !canEdit} />
+                    )
+                  )}
+
+                  {!concreteCalc.invalid && day === '7' && concreteTarget != null && (
+                    <p className="text-[11px] font-semibold text-black/60 dark:text-white/60">
+                      7-day result is informational. {concreteCalc.average >= 0.65 * concreteTarget
+                        ? 'Early strength is tracking toward the 28-day target.'
+                        : 'Early strength is low — check curing conditions.'}
+                    </p>
+                  )}
+                  {concreteTarget == null && (
+                    <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">This sample has no valid grade, so no target can be compared.</p>
                   )}
                 </div>
               )}
             </div>
           )}
 
-          {/* ========================================================================= */}
-          {/* B. STEEL REBAR FORM */}
-          {/* ========================================================================= */}
-          {category === 'Steel Rebar' && (
+          {/* ===================== STEEL ===================== */}
+          {category === 'Steel' && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                    Weight per Meter (kg/m)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.001"
-                    inputMode="decimal"
-                    required
-                    placeholder="e.g. 1.58"
-                    value={weightPerMeter}
-                    onChange={(e) => setWeightPerMeter(e.target.value)}
-                    className="w-full px-3 py-3 text-sm font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[48px]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                    Yield Stress (N/mm²)
-                  </label>
-                  <input
-                    type="number"
-                    step="1"
-                    inputMode="decimal"
-                    required
-                    placeholder="e.g. 525"
-                    value={yieldStress}
-                    onChange={(e) => setYieldStress(e.target.value)}
-                    className="w-full px-3 py-3 text-sm font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[48px]"
-                  />
-                </div>
+                <div><label className={labelCls}>Weight per Meter (kg/m)</label>{numInput(weightPerMeter, setWeightPerMeter, 'e.g. 1.58', '0.001')}</div>
+                <div><label className={labelCls}>Yield Stress (N/mm²)</label>{numInput(yieldStress, setYieldStress, 'e.g. 525', '1')}</div>
+                <div><label className={labelCls}>Ultimate Tensile Strength (N/mm²)</label>{numInput(tensileStrength, setTensileStrength, 'e.g. 610', '1')}</div>
+                <div><label className={labelCls}>Elongation (%)</label>{numInput(elongation, setElongation, 'e.g. 16.5')}</div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                    Ultimate Tensile Strength (N/mm²)
-                  </label>
-                  <input
-                    type="number"
-                    step="1"
-                    inputMode="decimal"
-                    required
-                    placeholder="e.g. 610"
-                    value={tensileStrength}
-                    onChange={(e) => setTensileStrength(e.target.value)}
-                    className="w-full px-3 py-3 text-sm font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[48px]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                    Elongation (%)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    inputMode="decimal"
-                    required
-                    placeholder="e.g. 16.5"
-                    value={elongation}
-                    onChange={(e) => setElongation(e.target.value)}
-                    className="w-full px-3 py-3 text-sm font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[48px]"
-                  />
-                </div>
-              </div>
-
-              {/* Bend / Rebend Test Toggle */}
               <div>
-                <label className="block text-xs font-extrabold text-black dark:text-white mb-1.5">
-                  Bend / Rebend Mandrel Test
-                </label>
+                <label className={labelCls}>Bend / Rebend Mandrel Test</label>
                 <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setBendRebendPass(true)}
-                    className={`py-3 px-3 text-xs font-extrabold rounded-xl border transition-all cursor-pointer ${
-                      bendRebendPass
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-md'
-                        : 'bg-black/5 dark:bg-white/5 text-black/70 dark:text-white/70 border-black/10 dark:border-white/10'
-                    }`}
-                  >
-                    Pass ✓ (No Cracks)
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setBendRebendPass(false)}
-                    className={`py-3 px-3 text-xs font-extrabold rounded-xl border transition-all cursor-pointer ${
-                      !bendRebendPass
-                        ? 'bg-red-600 text-white border-red-600 shadow-md'
-                        : 'bg-black/5 dark:bg-white/5 text-black/70 dark:text-white/70 border-black/10 dark:border-white/10'
-                    }`}
-                  >
-                    Fail ✕ (Cracks Detected)
-                  </button>
+                  {[['Pass', 'Pass ✓ (No Cracks)', 'bg-emerald-600 border-emerald-600'], ['Fail', 'Fail ✕ (Cracks Detected)', 'bg-red-600 border-red-600']].map(([val, label, on]) => (
+                    <button
+                      key={val}
+                      type="button"
+                      disabled={!canEdit}
+                      onClick={() => setBendTest(val)}
+                      className={`py-3 px-3 text-xs font-extrabold rounded-xl border transition-all cursor-pointer disabled:cursor-not-allowed ${
+                        bendTest === val ? `${on} text-white shadow-md` : 'bg-black/5 dark:bg-white/5 text-black/70 dark:text-white/70 border-black/10 dark:border-white/10'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {isSteelEvaluated && (
-                <div className="pt-2">
-                  {isSteelPassed ? (
-                    <div className="bg-emerald-500/15 border-2 border-emerald-500/40 p-4 rounded-2xl text-emerald-600 dark:text-emerald-400 space-y-1">
-                      <div className="flex items-center gap-2 font-black text-base">
-                        <CheckCircle2 size={20} />
-                        <span>REBAR PASSED SPECIFICATION</span>
-                      </div>
-                      <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-                        Yield stress {yieldNum} N/mm² exceeds target of {targetYieldNum} N/mm². Bend test passed.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="bg-red-500/15 border-2 border-red-500/40 p-4 rounded-2xl text-red-600 dark:text-red-400 space-y-3">
-                      <div className="flex items-center gap-2 font-black text-base">
-                        <XCircle size={20} />
-                        <span>REBAR SPECIFICATION FAILED</span>
-                      </div>
-                      <p className="text-xs font-semibold text-red-700 dark:text-red-300">
-                        Yield stress {yieldNum} N/mm² is below required target of {targetYieldNum} N/mm² or Bend test failed.
-                      </p>
-                      <Button
-                        type="button"
-                        variant="primary"
-                        onClick={handleGenerateNcrDraft}
-                        className="w-full !bg-red-600 hover:!bg-red-700 text-white font-extrabold !py-3 gap-2 min-h-[48px]"
-                      >
-                        <ShieldAlert size={18} /> Generate NCR Draft
-                      </Button>
-                    </div>
-                  )}
-                </div>
+              {steelPreview && (
+                steelPreview.passed ? (
+                  <Banner tone="pass" title="REBAR PASSED SPECIFICATION" text={`Meets all IS 1786 requirements for ${grade}. UTS/Yield ratio ${steelPreview.ratio}.`} />
+                ) : (
+                  <Banner
+                    tone="fail"
+                    title="REBAR SPECIFICATION FAILED"
+                    text={`Failed: ${Object.entries(steelPreview.checks).filter(([, ok]) => !ok).map(([k]) => ({ yield: `yield < ${steelPreview.spec.minYield}`, ratio: `UTS/Yield ${steelPreview.ratio} < ${steelPreview.spec.minUtsYieldRatio}`, elongation: `elongation < ${steelPreview.spec.minElongation}%`, bend: 'bend test' }[k])).join(', ')}.`}
+                    onNcr={handleGenerateNcr}
+                    busy={saving || !canEdit}
+                  />
+                )
               )}
             </div>
           )}
 
-          {/* ========================================================================= */}
-          {/* C. AGGREGATES FORM */}
-          {/* ========================================================================= */}
-          {category === 'Aggregates' && (
+          {/* ===================== AGGREGATE ===================== */}
+          {category === 'Aggregate' && (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                    Silt Content Volume (ml)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    inputMode="decimal"
-                    required
-                    placeholder="e.g. 6.5"
-                    value={siltVolume}
-                    onChange={(e) => setSiltVolume(e.target.value)}
-                    className="w-full px-3 py-3 text-sm font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[48px]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                    Total Jar Volume (ml)
-                  </label>
-                  <input
-                    type="number"
-                    step="1"
-                    inputMode="decimal"
-                    required
-                    placeholder="e.g. 100"
-                    value={totalVolume}
-                    onChange={(e) => setTotalVolume(e.target.value)}
-                    className="w-full px-3 py-3 text-sm font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[48px]"
-                  />
-                </div>
+              <div className="p-3 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-xl text-xs space-y-0.5">
+                <p className="font-bold text-black dark:text-white">{aggTestType}</p>
+                {aggUsage && <p className="text-black/60 dark:text-white/60">Usage: {aggUsage}</p>}
               </div>
-
-              {/* Grading Conforms to IS 383 Toggle */}
               <div>
-                <label className="block text-xs font-extrabold text-black dark:text-white mb-1.5">
-                  Grading Sieve Analysis Conforms to IS 383
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIs383Conforming(true)}
-                    className={`py-3 px-3 text-xs font-extrabold rounded-xl border transition-all cursor-pointer ${
-                      is383Conforming
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-md'
-                        : 'bg-black/5 dark:bg-white/5 text-black/70 dark:text-white/70 border-black/10 dark:border-white/10'
-                    }`}
-                  >
-                    Conforms ✓ (Zone II)
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setIs383Conforming(false)}
-                    className={`py-3 px-3 text-xs font-extrabold rounded-xl border transition-all cursor-pointer ${
-                      !is383Conforming
-                        ? 'bg-red-600 text-white border-red-600 shadow-md'
-                        : 'bg-black/5 dark:bg-white/5 text-black/70 dark:text-white/70 border-black/10 dark:border-white/10'
-                    }`}
-                  >
-                    Non-Conforming ✕
-                  </button>
-                </div>
+                <label className={labelCls}>Test Result Value {aggUnit ? `(${aggUnit})` : ''}</label>
+                {numInput(aggValue, setAggValue, 'e.g. 24.5')}
               </div>
 
-              {isAggregatesEvaluated && (
-                <div className="space-y-3 pt-2">
-                  <div className="flex items-center justify-between p-3 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-xl text-xs">
-                    <span className="font-bold text-black dark:text-white">Auto-Calculated Silt Percentage:</span>
-                    <span className="text-base font-black text-black dark:text-white">{siltPercentage}%</span>
-                  </div>
-
-                  {isAggregatesPassed ? (
-                    <div className="bg-emerald-500/15 border-2 border-emerald-500/40 p-4 rounded-2xl text-emerald-600 dark:text-emerald-400 space-y-1">
-                      <div className="flex items-center gap-2 font-black text-base">
-                        <CheckCircle2 size={20} />
-                        <span>AGGREGATE PASSED SPECIFICATION</span>
-                      </div>
-                      <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-                        Silt content {siltPercentage}% is within maximum allowed 8.0% limit. IS 383 conforming.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="bg-red-500/15 border-2 border-red-500/40 p-4 rounded-2xl text-red-600 dark:text-red-400 space-y-3">
-                      <div className="flex items-center gap-2 font-black text-base">
-                        <XCircle size={20} />
-                        <span>AGGREGATE SPECIFICATION FAILED</span>
-                      </div>
-                      <p className="text-xs font-semibold text-red-700 dark:text-red-300">
-                        Silt content {siltPercentage}% exceeds maximum allowed 8.0% threshold or fails IS 383 grading.
-                      </p>
-                      <Button
-                        type="button"
-                        variant="primary"
-                        onClick={handleGenerateNcrDraft}
-                        className="w-full !bg-red-600 hover:!bg-red-700 text-white font-extrabold !py-3 gap-2 min-h-[48px]"
-                      >
-                        <ShieldAlert size={18} /> Generate NCR Draft
-                      </Button>
-                    </div>
-                  )}
-                </div>
+              {aggPreview && (
+                aggPreview.passed ? (
+                  <Banner tone="pass" title="AGGREGATE PASSED SPECIFICATION" text={aggPreview.informational ? 'Informational only — no pass/fail limit under IS 2386.' : `${aggValue}${aggUnit} is within the ${aggPreview.limit}${aggUnit} limit for ${aggUsage}.`} />
+                ) : (
+                  <Banner tone="fail" title="AGGREGATE SPECIFICATION FAILED" text={`${aggValue}${aggUnit} exceeds the ${aggPreview.limit}${aggUnit} limit for ${aggUsage}.`} onNcr={handleGenerateNcr} busy={saving || !canEdit} />
+                )
               )}
             </div>
           )}
 
-          {/* ========================================================================= */}
-          {/* D. SOIL FORM (FIELD DENSITY TEST - FDT) */}
-          {/* ========================================================================= */}
+          {/* ===================== SOIL ===================== */}
           {category === 'Soil' && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                    Field Wet Density (g/cc)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    inputMode="decimal"
-                    required
-                    placeholder="e.g. 1.98"
-                    value={fieldWetDensity}
-                    onChange={(e) => setFieldWetDensity(e.target.value)}
-                    className="w-full px-3 py-3 text-sm font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[48px]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-                    Field Moisture Content (%)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    inputMode="decimal"
-                    required
-                    placeholder="e.g. 11.8"
-                    value={fieldMoistureContent}
-                    onChange={(e) => setFieldMoistureContent(e.target.value)}
-                    className="w-full px-3 py-3 text-sm font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[48px]"
-                  />
-                </div>
+                <div><label className={labelCls}>Field Wet Density (g/cc)</label>{numInput(wetDensity, setWetDensity, 'e.g. 1.98', '0.01')}</div>
+                <div><label className={labelCls}>Field Moisture Content (%)</label>{numInput(moisture, setMoisture, 'e.g. 11.8')}</div>
               </div>
 
-              {isSoilEvaluated && (
-                <div className="space-y-3 pt-2">
+              {soilPreview && (
+                <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 p-3 rounded-xl">
                       <span className="text-[10px] font-bold text-black/50 dark:text-white/50 block">Field Dry Density (FDD)</span>
-                      <span className="text-sm font-extrabold text-black dark:text-white">{fieldDryDensity} g/cc</span>
+                      <span className="text-sm font-extrabold text-black dark:text-white">{soilPreview.dryDensity} g/cc</span>
                     </div>
-
                     <div className="bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 p-3 rounded-xl">
                       <span className="text-[10px] font-bold text-black/50 dark:text-white/50 block">Compaction Degree</span>
-                      <span className="text-sm font-extrabold text-black dark:text-white">{compactionPercentage}%</span>
+                      <span className="text-sm font-extrabold text-black dark:text-white">{soilPreview.compaction}%</span>
                     </div>
                   </div>
-
-                  {isSoilPassed ? (
-                    <div className="bg-emerald-500/15 border-2 border-emerald-500/40 p-4 rounded-2xl text-emerald-600 dark:text-emerald-400 space-y-1">
-                      <div className="flex items-center gap-2 font-black text-base">
-                        <CheckCircle2 size={20} />
-                        <span>SOIL COMPACTION PASSED</span>
-                      </div>
-                      <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-                        Achieved compaction of {compactionPercentage}% meets required minimum 95.0% MDD threshold.
-                      </p>
-                    </div>
+                  {soilPreview.passed ? (
+                    <Banner tone="pass" title="SOIL COMPACTION PASSED" text={`${soilPreview.compaction}% meets the minimum 95% of MDD.`} />
                   ) : (
-                    <div className="bg-red-500/15 border-2 border-red-500/40 p-4 rounded-2xl text-red-600 dark:text-red-400 space-y-3">
-                      <div className="flex items-center gap-2 font-black text-base">
-                        <XCircle size={20} />
-                        <span>COMPACTION SPECIFICATION FAILED</span>
-                      </div>
-                      <p className="text-xs font-semibold text-red-700 dark:text-red-300">
-                        Achieved compaction {compactionPercentage}% is below required minimum 95.0% MDD requirement.
-                      </p>
-                      <Button
-                        type="button"
-                        variant="primary"
-                        onClick={handleGenerateNcrDraft}
-                        className="w-full !bg-red-600 hover:!bg-red-700 text-white font-extrabold !py-3 gap-2 min-h-[48px]"
-                      >
-                        <ShieldAlert size={18} /> Generate NCR Draft
-                      </Button>
-                    </div>
+                    <Banner tone="fail" title="COMPACTION SPECIFICATION FAILED" text={`${soilPreview.compaction}% is below the required 95% of MDD.`} onNcr={handleGenerateNcr} busy={saving || !canEdit} />
                   )}
                 </div>
               )}
             </div>
           )}
 
-          {/* QC Remarks */}
-          <div>
-            <label className="block text-xs font-extrabold text-black dark:text-white mb-1">
-              Testing Technician Remarks
-            </label>
-            <textarea
-              rows={2}
-              placeholder="e.g. Verified with calibrated lab apparatus"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="w-full px-3 py-2 text-xs font-extrabold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
-            />
-          </div>
+          {/* ===================== READING HISTORY ===================== */}
+          {history.length > 0 && (
+            <div className="space-y-2 pt-1">
+              <p className="text-xs font-extrabold text-black dark:text-white flex items-center gap-1.5">
+                <History size={14} className="text-orange-500" /> Reading History
+              </p>
+              <div className="space-y-1.5 max-h-44 overflow-y-auto">
+                {[...history].reverse().map((h, idx) => (
+                  <div key={idx} className="p-2.5 rounded-xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 text-[11px] space-y-0.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-extrabold text-black dark:text-white">{h.stage}</span>
+                      <span className="font-bold text-black/60 dark:text-white/60">{h.status}{h.average != null ? ` · ${h.average}` : ''}</span>
+                    </div>
+                    <p className="text-black/50 dark:text-white/50">
+                      {h.recordedBy} · {h.recordedAt ? new Date(h.recordedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+                    </p>
+                    {h.recommendation && <p className="text-black/70 dark:text-white/70 leading-snug">{h.recommendation}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-black/10 dark:border-white/10">
             <Button variant="secondary" onClick={onClose} type="button" className="!py-3 flex-1 min-h-[48px]">
-              Cancel
+              {canEdit ? 'Cancel' : 'Close'}
             </Button>
-            <Button
-              variant="primary"
-              type="submit"
-              disabled={
-                (category === 'Concrete' && !isConcreteEvaluated) ||
-                (category === 'Steel Rebar' && !isSteelEvaluated) ||
-                (category === 'Aggregates' && !isAggregatesEvaluated) ||
-                (category === 'Soil' && !isSoilEvaluated)
-              }
-              className="!py-3 flex-1 min-h-[48px]"
-            >
-              Save Test Result
-            </Button>
+            {canEdit && (
+              <button
+                type="submit"
+                disabled={!canSave || saving}
+                className="inline-flex items-center justify-center font-medium text-sm rounded-md bg-black dark:bg-white text-white dark:text-black shadow-md px-5 !py-3 flex-1 min-h-[48px] hover:opacity-90 transition-all active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {saving ? 'Saving…' : alreadyRecorded ? 'Update Reading' : 'Save Test Result'}
+              </button>
+            )}
           </div>
         </form>
       </div>

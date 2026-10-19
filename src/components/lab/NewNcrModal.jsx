@@ -17,12 +17,14 @@ const TEAM_MEMBERS = [
   "Ramesh Sharma (Site Supervisor)"
 ];
 
-export default function NewNcrModal({ isOpen, onClose, onSave, samples = [], prefilledData = null }) {
+export default function NewNcrModal({ isOpen, onClose, onSave, samples = [], prefilledData = null, assignees = [] }) {
   const [selectedSampleId, setSelectedSampleId] = useState(samples[0]?.id || '');
   const [severity, setSeverity] = useState('High');
   const [title, setTitle] = useState('');
   const [correctiveAction, setCorrectiveAction] = useState('');
-  const [assignedTo, setAssignedTo] = useState(TEAM_MEMBERS[0]);
+  const team = assignees.length ? assignees : TEAM_MEMBERS;
+  const [assignedTo, setAssignedTo] = useState(team[0]);
+  useEffect(() => { if (!team.includes(assignedTo)) setAssignedTo(team[0]); }, [team.join('|')]); // eslint-disable-line
   const [evidencePhotos, setEvidencePhotos] = useState([]);
 
   // Active sample details derived from selectedSampleId
@@ -57,6 +59,7 @@ export default function NewNcrModal({ isOpen, onClose, onSave, samples = [], pre
       const timestamp = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ' ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const newPhoto = {
         id: `img-${Date.now()}`,
+        file,
         url: URL.createObjectURL(file),
         gpsWatermark: `GPS: 19.1197° N, 72.8464° E • ${timestamp}`
       };
@@ -210,7 +213,7 @@ export default function NewNcrModal({ isOpen, onClose, onSave, samples = [], pre
               onChange={(e) => setAssignedTo(e.target.value)}
               className="w-full px-3.5 py-2.5 text-xs font-bold bg-black/5 dark:bg-white/5 border border-black/15 dark:border-white/15 rounded-xl text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500 min-h-[44px]"
             >
-              {TEAM_MEMBERS.map((member) => (
+              {team.map((member) => (
                 <option key={member} value={member} className="bg-white dark:bg-[#0a0f1d]">
                   {member}
                 </option>

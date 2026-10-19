@@ -9,6 +9,7 @@ export default function RecalibrateModal({ isOpen, onClose, equipment, onSave })
     return nextYear.toISOString().split('T')[0];
   });
   const [photoCaptured, setPhotoCaptured] = useState(null);
+  const [photoFile, setPhotoFile] = useState(null);
 
   if (!isOpen || !equipment) return null;
 
@@ -16,6 +17,7 @@ export default function RecalibrateModal({ isOpen, onClose, equipment, onSave })
     const file = e.target.files[0];
     if (file) {
       setPhotoCaptured(URL.createObjectURL(file));
+      setPhotoFile(file);
     }
   };
 
@@ -25,6 +27,7 @@ export default function RecalibrateModal({ isOpen, onClose, equipment, onSave })
     const today = new Date().toISOString().split('T')[0];
     const updatedEquip = {
       ...equipment,
+      photoFile,
       lastCalibrationDate: today,
       nextCalibrationDue: newDueDate,
       status: 'Active' // Set status to Active

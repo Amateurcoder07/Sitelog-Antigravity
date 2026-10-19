@@ -1,22 +1,25 @@
 import React, { useState } from 'react';
 import { X, FileCheck, Upload, Camera, FileText } from 'lucide-react';
 import Button from '../Button';
+import { useEffect } from 'react';
 
 export default function UploadCertModal({ isOpen, onClose, onSave, samples = [] }) {
   const [title, setTitle] = useState('');
-  const [sampleId, setSampleId] = useState(samples[0]?.id || 'TS-2026-001');
+  const [sampleId, setSampleId] = useState(samples[0]?.id || '')
   const [nablLabName, setNablLabName] = useState('National Quality Assurance Lab (NABL)');
   const [approvalStatus, setApprovalStatus] = useState('Approved');
   const [fileUploaded, setFileUploaded] = useState(null);
 
   if (!isOpen) return null;
+  useEffect(() => { if (!sampleId && samples[0]) setSampleId(samples[0].id); }, [samples]);
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
       setFileUploaded({
         name: file.name,
-        size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`
+        size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+        file
       });
     }
   };
@@ -36,7 +39,8 @@ export default function UploadCertModal({ isOpen, onClose, onSave, samples = [] 
       materialCategory: selectedSample?.materialCategory || 'Concrete',
       approvalStatus,
       fileType: 'PDF',
-      fileSize: fileUploaded?.size || '1.8 MB'
+      fileSize: fileUploaded?.size || '1.8 MB',
+      file: fileUploaded?.file,
     };
 
     onSave(newCert);
