@@ -5,13 +5,13 @@ import * as labService from '../services/labService';
 import Button from '../components/Button';
 import NewSampleModal from '../components/lab/NewSampleModal';
 import RecordResultModal from '../components/lab/RecordResultModal';
-import SampleHistoryModal from '../components/lab/SampleHistoryModal';
 import NewNcrModal from '../components/lab/NewNcrModal';
 import NewEquipmentModal from '../components/lab/NewEquipmentModal';
 import RecalibrateModal from '../components/lab/RecalibrateModal';
 import UploadCertModal from '../components/lab/UploadCertModal';
 import PdfPreviewShareModal from '../components/lab/PdfPreviewShareModal';
 import ConcreteCubeRegister from '../components/lab/ConcreteCubeRegister';
+import QrScanModal from '../components/lab/QrScanModal'; // adjust path if yours differs
 import {
   FlaskConical,
   Layers,
@@ -36,12 +36,28 @@ import {
 
 const OBJECT_ID_RE = /^[0-9a-fA-F]{24}$/;
 
+const recordLabel = (sample) => (sample.canEdit ? 'Record Result' : 'View Readings');
+
+function StatusBadge({ sample, compact }) {
+  const size = compact ? 12 : 14;
+  const base = 'inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold border flex-shrink-0';
+  if (sample.status === 'Pass')
+    return <span className={`${base} bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20`}><CheckCircle2 size={size} /> Pass</span>;
+  if (sample.status === 'Fail')
+    return <span className={`${base} bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20`}><XCircle size={size} /> {compact ? 'Fail' : 'Fail (NCR)'}</span>;
+  if (sample.status === 'Retest Required')
+    return <span className={`${base} bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20`}><XCircle size={size} /> Retest</span>;
+  if (sample.status === 'Due Today')
+    return <span className={`${base} bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 animate-pulse`}><Clock size={size} /> {compact ? 'Due Today' : 'Testing Due'}</span>;
+  return <span className={`${base} bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20`}><FlaskConical size={size} /> Curing</span>;
+}
+
 export default function LabManagement() {
   const { showToast } = useToast();
   const { projectId } = useParams();
   const hasRealProject = OBJECT_ID_RE.test(projectId || '');
 
-  const [activeTab, setActiveTab] = useState('cube-register'); // 'cube-register' | 'samples' | 'ncrs' | 'equipment' | 'certificates'
+  const [activeTab, setActiveTab] = useState('cube-register');
   const [cubePours, setCubePours] = useState([]);
   const [samples, setSamples] = useState([]);
   const [ncrs, setNcrs] = useState([]);
@@ -52,31 +68,28 @@ export default function LabManagement() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
-  // Quick Filter Chips State: 'All' | 'Due Today' | 'Concrete' | 'Steel' | 'Aggregates' | 'Failed / NCR'
   const [activeChip, setActiveChip] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Modals Visibility
+  // Modals
   const [isSampleModalOpen, setIsSampleModalOpen] = useState(false);
   const [isNcrModalOpen, setIsNcrModalOpen] = useState(false);
   const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [ncrPrefilledData, setNcrPrefilledData] = useState(null);
   const [selectedSampleForRecord, setSelectedSampleForRecord] = useState(null);
-
   const [selectedEquipForRecalibrate, setSelectedEquipForRecalibrate] = useState(null);
   const [isUploadCertModalOpen, setIsUploadCertModalOpen] = useState(false);
   const [selectedCertForPreview, setSelectedCertForPreview] = useState(null);
 
-  // Consultant-report upload (hidden file input shared by all NCR cards)
+  // Consultant-report upload (hidden input shared by all NCR cards)
   const consultantInputRef = useRef(null);
   const [ncrForReport, setNcrForReport] = useState(null);
 
-  // Touch Swipe State Tracking
+  // Swipe tracking
   const [touchStartMap, setTouchStartMap] = useState({});
   const [swipeOffsetMap, setSwipeOffsetMap] = useState({});
 
-  // NCR Sub-Tab View State: 'open' | 'resolved'
   const [ncrViewTab, setNcrViewTab] = useState('open');
 
   const failToast = (err, fallback) => showToast(`⚠️ ${err?.response?.data?.msg || fallback}`);
@@ -399,19 +412,11 @@ export default function LabManagement() {
   const filteredSamples = samples.filter((s) => {
     const q = searchTerm.toLowerCase();
     const matchesSearch =
-      s.id.toLowerCase().includes(q) ||
-      s.sampleName.toLowerCase().includes(q) ||
-      s.structureLocation.toLowerCase().includes(q) ||
-      s.gradeBadge.toLowerCase().includes(q);
-
-function EmptyState({ icon: Icon, text }) {
-  return (
-    <div className="text-center py-14 border border-dashed border-black/15 dark:border-white/15 rounded-xl">
-      <Icon className="mx-auto text-black/20 dark:text-white/20 mb-3" size={30} />
-      <p className="text-sm text-black/50 dark:text-white/50 max-w-sm mx-auto">{text}</p>
-    </div>
-  );
-}
+      (s.id || '').toLowerCase().includes(q) ||
+      (s.sampleName || '').toLowerCase().includes(q) ||
+      (s.structureLocation || '').toLowerCase().includes(q) ||
+      (s.gradeBadge || '').toLowerCase().includes(q);
+    if (!matchesSearch) return false;
 
     if (activeChip === 'All') return true;
     if (activeChip === 'Due Today') return s.status === 'Due Today';
@@ -419,82 +424,11 @@ function EmptyState({ icon: Icon, text }) {
     if (activeChip === 'Steel') return s.materialCategory === 'Steel';
     if (activeChip === 'Aggregates') return s.materialCategory === 'Aggregate';
     if (activeChip === 'Failed / NCR') return s.status === 'Fail' || s.status === 'Retest Required';
+    return true;
+  });
 
-      {samples.length === 0 ? (
-        <EmptyState icon={FlaskConical} text="No samples registered yet. Cast a sample to begin the IS testing workflow." />
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {samples.map((s) => {
-            const st = SAMPLE_STATUS_STYLE[s.status] || SAMPLE_STATUS_STYLE.Curing;
-            const StatusIcon = st.icon;
-            const canRecord = ['Curing', 'Due Today', 'Retest Required'].includes(s.status);
-            const hasHistory = (s.resultData?.history || []).length > 0;
-            return (
-              <div key={s._id} className="bg-white dark:bg-[#0a0a0a] border border-black/10 dark:border-white/10 rounded-xl p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="font-mono text-xs font-bold text-black/60 dark:text-white/60">{s.code}</span>
-                  <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${st.className}`}>
-                    <StatusIcon size={11} /> {st.label}
-                  </span>
-                </div>
-                <h3 className="text-black dark:text-white font-semibold text-sm mb-1">{s.sampleName}</h3>
-                <p className="text-black/40 dark:text-white/40 text-xs mb-2">{s.materialCategory} • {s.structureLocation}</p>
-                {s.grade && (
-                  <p className="text-black/50 dark:text-white/50 text-xs mb-1">
-                    Grade: <span className="font-semibold text-black dark:text-white">{s.grade}</span>
-                  </p>
-                )}
-                <p className="text-black/50 dark:text-white/50 text-xs mb-1">Target: {s.targetStrength || '—'}</p>
-                <p className="text-black/50 dark:text-white/50 text-xs mb-1">Achieved: {s.achievedStrength || 'Pending Test'}</p>
-                <p className="text-black/30 dark:text-white/30 text-[11px] mb-3">{s.standardCode}</p>
-                <p className="text-black/40 dark:text-white/40 text-[11px] mb-4">{s.ageStatus}</p>
-
-                <div className="flex items-center gap-2">
-                  {canRecord && (
-                    <button
-                      onClick={() => onRecord(s)}
-                      className="flex-1 text-xs font-semibold px-3 py-2 rounded-lg bg-black dark:bg-white text-white dark:text-black hover:opacity-90 transition-opacity cursor-pointer"
-                    >
-                      Add Reading
-                    </button>
-                  )}
-                  {s.status === 'Fail' && (
-                    <button
-                      onClick={() => onRaiseNcr(s)}
-                      className="flex-1 text-xs font-semibold px-3 py-2 rounded-lg border border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
-                    >
-                      Raise NCR
-                    </button>
-                  )}
-                  <button
-                    onClick={() => onViewHistory(s)}
-                    disabled={!hasHistory}
-                    title={hasHistory ? 'View reading history' : 'No readings recorded yet'}
-                    className="flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border border-black/15 dark:border-white/15 text-black/70 dark:text-white/70 hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <History size={13} /> History
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-  const recordLabel = (sample) => (sample.canEdit ? 'Record Result' : 'View Readings');
-
-  const StatusBadge = ({ sample, compact }) => {
-    const size = compact ? 12 : 14;
-    const base = 'inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold border';
-    if (sample.status === 'Pass') return <span className={`${base} bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 flex-shrink-0`}><CheckCircle2 size={size} /> Pass</span>;
-    if (sample.status === 'Fail') return <span className={`${base} bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20 flex-shrink-0`}><XCircle size={size} /> {compact ? 'Fail' : 'Fail (NCR)'}</span>;
-    if (sample.status === 'Retest Required') return <span className={`${base} bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 flex-shrink-0`}><XCircle size={size} /> Retest</span>;
-    if (sample.status === 'Due Today') return <span className={`${base} bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 flex-shrink-0 animate-pulse`}><Clock size={size} /> {compact ? 'Due Today' : 'Testing Due'}</span>;
-    return <span className={`${base} bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20 flex-shrink-0`}><FlaskConical size={size} /> Curing</span>;
-  };
+  const openNcrList = ncrs.filter((n) => n.status !== 'Resolved' && n.status !== 'Closed');
+  const resolvedNcrList = ncrs.filter((n) => n.status === 'Resolved' || n.status === 'Closed');
 
   // ------------------------------------------------------------ gates
   if (!hasRealProject) {
@@ -518,33 +452,15 @@ function EmptyState({ icon: Icon, text }) {
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-black/50 dark:text-white/50">{ncrs.length} NCR{ncrs.length === 1 ? '' : 's'} raised</p>
-        <button onClick={onNew} className="flex items-center gap-2 bg-red-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg hover:opacity-90 transition-opacity cursor-pointer">
-          <Plus size={15} /> Raise NCR
-        </button>
-      </div>
-      {ncrs.length === 0 ? (
-        <EmptyState icon={ShieldAlert} text="No non-conformances raised. Failed samples can be escalated directly from the Sample Testing tab." />
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {ncrs.map((n) => (
-            <div key={n._id} className="bg-white dark:bg-[#0a0a0a] border border-black/10 dark:border-white/10 rounded-xl p-5">
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-mono text-xs font-bold text-black/60 dark:text-white/60">{n.code}</span>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${NCR_STATUS_STYLE[n.status] || ''}`}>{n.status}</span>
-              </div>
-              <h3 className="text-black dark:text-white font-semibold text-sm mb-1">{n.title}</h3>
-              <p className="text-black/50 dark:text-white/50 text-xs mb-2">Severity: <span className="font-semibold">{n.severity}</span> • Assigned to {n.assignedTo}</p>
-              <p className="text-black/40 dark:text-white/40 text-xs">{n.correctiveAction}</p>
-            </div>
-          ))}
+    <div className="space-y-5 pb-24 md:pb-0">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl md:text-2xl font-black text-black dark:text-white">Lab Management</h1>
+          <p className="text-xs md:text-sm text-black/50 dark:text-white/50">
+            Material testing, NCRs, equipment calibration and NABL reports
+          </p>
         </div>
-      )}
-    </div>
-  );
-}
 
         <div className="hidden md:flex flex-wrap items-center gap-2.5">
           <Button variant="outline" onClick={handleExport} className="!text-xs gap-2 min-h-[44px]">
@@ -574,44 +490,15 @@ function EmptyState({ icon: Icon, text }) {
             Across {summary.categoryCount} material categor{summary.categoryCount === 1 ? 'y' : 'ies'}
           </p>
         </div>
-      )}
-    </div>
-  );
-}
 
-function CertificatesTab({ certificates, onNew, onPreview }) {
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-black/50 dark:text-white/50">{certificates.length} certificate{certificates.length === 1 ? '' : 's'} on file</p>
-        <button onClick={onNew} className="flex items-center gap-2 bg-orange-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg hover:opacity-90 transition-opacity cursor-pointer">
-          <Plus size={15} /> Upload Certificate
-        </button>
-      </div>
-      {certificates.length === 0 ? (
-        <EmptyState icon={FileCheck} text="No NABL certificates uploaded yet." />
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {certificates.map((c) => (
-            <button
-              key={c._id}
-              onClick={() => onPreview({ ...c, id: c.code, sampleId: c.sample })}
-              className="text-left bg-white dark:bg-[#0a0a0a] border border-black/10 dark:border-white/10 rounded-xl p-5 hover:border-black/30 dark:hover:border-white/30 transition-colors cursor-pointer"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-mono text-xs font-bold text-black/60 dark:text-white/60">{c.code}</span>
-                <Eye size={14} className="text-black/30 dark:text-white/30" />
-              </div>
-              <h3 className="text-black dark:text-white font-semibold text-sm mb-1">{c.title}</h3>
-              <p className="text-black/40 dark:text-white/40 text-xs">{c.nablLabName}</p>
-              <p className="text-black/30 dark:text-white/30 text-[11px] mt-1">{new Date(c.issueDate).toLocaleDateString('en-IN')}</p>
-            </button>
-          ))}
+        <div className="snap-start flex-shrink-0 w-64 md:w-auto bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 p-4 rounded-2xl shadow-sm">
+          <div className="flex items-center justify-between text-black/50 dark:text-white/50 mb-2">
+            <span className="text-xs font-semibold">Pass Rate</span>
+            <CheckCircle2 size={16} className="text-emerald-500" />
+          </div>
+          <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{isLoading ? '...' : `${summary.passRatePercentage}%`}</p>
+          <p className="text-[11px] font-medium text-emerald-600/70 dark:text-emerald-400/70 mt-1">Of tested samples</p>
         </div>
-      )}
-    </div>
-  );
-}
 
         <div className="snap-start flex-shrink-0 w-64 md:w-auto bg-white dark:bg-[#0a0f1d] border border-black/10 dark:border-white/10 p-4 rounded-2xl shadow-sm">
           <div className="flex items-center justify-between text-black/50 dark:text-white/50 mb-2">
@@ -877,7 +764,7 @@ function CertificatesTab({ certificates, onNew, onPreview }) {
                     : 'bg-black/5 dark:bg-white/5 text-black/70 dark:text-white/70 hover:text-black dark:hover:text-white'
                 }`}
               >
-                ⚠️ Open NCRs ({ncrs.filter((n) => n.status !== 'Resolved' && n.status !== 'Closed').length})
+                ⚠️ Open NCRs ({openNcrList.length})
               </button>
 
               <button
@@ -888,7 +775,7 @@ function CertificatesTab({ certificates, onNew, onPreview }) {
                     : 'bg-black/5 dark:bg-white/5 text-black/70 dark:text-white/70 hover:text-black dark:hover:text-white'
                 }`}
               >
-                ✓ Resolved / Closed ({ncrs.filter((n) => n.status === 'Resolved' || n.status === 'Closed').length})
+                ✓ Resolved / Closed ({resolvedNcrList.length})
               </button>
             </div>
 
@@ -899,126 +786,126 @@ function CertificatesTab({ certificates, onNew, onPreview }) {
 
           <input ref={consultantInputRef} type="file" accept="application/pdf,image/*" onChange={handleConsultantFile} className="hidden" />
 
+          {!isLoading && (ncrViewTab === 'open' ? openNcrList : resolvedNcrList).length === 0 && (
+            <div className="text-center py-12 bg-white dark:bg-[#0a0f1d] border border-dashed border-black/15 dark:border-white/15 rounded-2xl text-xs text-black/50 dark:text-white/50">
+              {ncrViewTab === 'open' ? 'No open non-conformances.' : 'No resolved or closed NCRs yet.'}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {ncrs
-              .filter((n) =>
-                ncrViewTab === 'open'
-                  ? n.status !== 'Resolved' && n.status !== 'Closed'
-                  : n.status === 'Resolved' || n.status === 'Closed'
-              )
-              .map((ncr) => (
-                <div
-                  key={ncr._id}
-                  className={`bg-white dark:bg-[#0a0f1d] border p-5 rounded-3xl space-y-4 shadow-sm ${
-                    ncr.severity === 'High'
-                      ? 'border-red-500/40 shadow-red-500/5'
-                      : ncr.severity === 'Medium'
-                      ? 'border-amber-500/40'
-                      : 'border-blue-500/40'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-black px-3 py-1 rounded-xl bg-black/5 dark:bg-white/10 text-black dark:text-white font-mono">{ncr.id}</span>
-                      <span className="text-[11px] font-bold text-black/50 dark:text-white/50">{ncr.dateReported}</span>
-                    </div>
-
-                    {ncr.severity === 'High' && (
-                      <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20">High Severity</span>
-                    )}
-                    {ncr.severity === 'Medium' && (
-                      <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">Medium Severity</span>
-                    )}
-                    {ncr.severity === 'Low' && (
-                      <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">Low Severity</span>
-                    )}
+            {(ncrViewTab === 'open' ? openNcrList : resolvedNcrList).map((ncr) => (
+              <div
+                key={ncr._id}
+                className={`bg-white dark:bg-[#0a0f1d] border p-5 rounded-3xl space-y-4 shadow-sm ${
+                  ncr.severity === 'High'
+                    ? 'border-red-500/40 shadow-red-500/5'
+                    : ncr.severity === 'Medium'
+                    ? 'border-amber-500/40'
+                    : 'border-blue-500/40'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black px-3 py-1 rounded-xl bg-black/5 dark:bg-white/10 text-black dark:text-white font-mono">{ncr.id}</span>
+                    <span className="text-[11px] font-bold text-black/50 dark:text-white/50">{ncr.dateReported}</span>
                   </div>
 
-                  <div>
-                    <h3 className="font-extrabold text-sm md:text-base text-black dark:text-white leading-snug">{ncr.title}</h3>
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-black/60 dark:text-white/60 mt-1.5 font-medium">
-                      <span>Ref Sample: <strong className="font-mono text-black dark:text-white">{ncr.sampleId}</strong></span>
-                      {ncr.structureLocation && (
-                        <>
-                          <span>•</span>
-                          <span>Location: <strong className="text-black dark:text-white">{ncr.structureLocation}</strong></span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="bg-black/5 dark:bg-white/5 p-3.5 rounded-2xl border border-black/5 dark:border-white/5 space-y-1">
-                    <p className="text-[11px] font-extrabold uppercase tracking-wider text-orange-600 dark:text-orange-400">Root Cause & Corrective Action Plan:</p>
-                    <p className="text-xs font-medium text-black/80 dark:text-white/80 leading-relaxed">{ncr.correctiveAction}</p>
-                  </div>
-
-                  {ncr.evidencePhotos && ncr.evidencePhotos.length > 0 && (
-                    <div className="space-y-1">
-                      <span className="text-[10px] font-bold text-black/40 dark:text-white/40 uppercase">Evidence Photos:</span>
-                      <div className="flex items-center gap-2 overflow-x-auto">
-                        {ncr.evidencePhotos.map((img) => (
-                          <a key={img.id} href={img.url} target="_blank" rel="noreferrer" className="relative w-20 h-14 rounded-lg overflow-hidden border border-black/10 dark:border-white/10 flex-shrink-0 bg-black">
-                            <img src={img.url} alt="Evidence" className="w-full h-full object-cover" />
-                          </a>
-                        ))}
-                      </div>
-                    </div>
+                  {ncr.severity === 'High' && (
+                    <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20">High Severity</span>
                   )}
-
-                  {ncr.consultantReports && ncr.consultantReports.length > 0 && (
-                    <div className="space-y-1">
-                      <span className="text-[10px] font-bold text-black/40 dark:text-white/40 uppercase">Consultant Reports:</span>
-                      <div className="flex flex-col gap-1">
-                        {ncr.consultantReports.map((r) => (
-                          <a key={r.id} href={r.url} target="_blank" rel="noreferrer" className="text-xs font-bold text-orange-600 dark:text-orange-400 hover:underline flex items-center gap-1.5 truncate">
-                            <FileText size={13} className="shrink-0" /> {r.name || 'Report'}
-                          </a>
-                        ))}
-                      </div>
-                    </div>
+                  {ncr.severity === 'Medium' && (
+                    <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">Medium Severity</span>
                   )}
+                  {ncr.severity === 'Low' && (
+                    <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">Low Severity</span>
+                  )}
+                </div>
 
-                  <div className="flex items-center justify-between text-xs pt-2 border-t border-black/5 dark:border-white/5">
-                    <div className="flex items-center gap-2 text-black/70 dark:text-white/70">
-                      <span className="w-6 h-6 rounded-full bg-orange-500/20 text-orange-600 dark:text-orange-400 font-bold flex items-center justify-center text-[10px]">
-                        {ncr.assignedTo?.[0] || 'E'}
-                      </span>
-                      <span className="font-bold text-black dark:text-white">{ncr.assignedTo}</span>
-                    </div>
-
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                      ncr.status === 'Closed' || ncr.status === 'Resolved'
-                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                        : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-                    }`}>
-                      {ncr.status}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2 pt-2">
-                    <button
-                      onClick={() => handleUpdateNcrStatus(ncr, ncr.status === 'Open' ? 'Under Review' : 'Resolved')}
-                      className="py-2 px-2 text-[11px] font-bold rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-black dark:text-white border border-black/10 dark:border-white/10 transition-all cursor-pointer text-center min-h-[40px]"
-                    >
-                      Update Status
-                    </button>
-
-                    <button
-                      onClick={() => pickConsultantReport(ncr)}
-                      className="py-2 px-2 text-[11px] font-bold rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-black dark:text-white border border-black/10 dark:border-white/10 transition-all cursor-pointer text-center min-h-[40px]"
-                    >
-                      + Consultant Report
-                    </button>
-
-                    <button
-                      onClick={() => handleCloseNcr(ncr)}
-                      className="py-2 px-2 text-[11px] font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition-all cursor-pointer text-center min-h-[40px]"
-                    >
-                      Close NCR ✓
-                    </button>
+                <div>
+                  <h3 className="font-extrabold text-sm md:text-base text-black dark:text-white leading-snug">{ncr.title}</h3>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-black/60 dark:text-white/60 mt-1.5 font-medium">
+                    <span>Ref Sample: <strong className="font-mono text-black dark:text-white">{ncr.sampleId}</strong></span>
+                    {ncr.structureLocation && (
+                      <>
+                        <span>•</span>
+                        <span>Location: <strong className="text-black dark:text-white">{ncr.structureLocation}</strong></span>
+                      </>
+                    )}
                   </div>
                 </div>
-              ))}
+
+                <div className="bg-black/5 dark:bg-white/5 p-3.5 rounded-2xl border border-black/5 dark:border-white/5 space-y-1">
+                  <p className="text-[11px] font-extrabold uppercase tracking-wider text-orange-600 dark:text-orange-400">Root Cause & Corrective Action Plan:</p>
+                  <p className="text-xs font-medium text-black/80 dark:text-white/80 leading-relaxed">{ncr.correctiveAction}</p>
+                </div>
+
+                {ncr.evidencePhotos && ncr.evidencePhotos.length > 0 && (
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-black/40 dark:text-white/40 uppercase">Evidence Photos:</span>
+                    <div className="flex items-center gap-2 overflow-x-auto">
+                      {ncr.evidencePhotos.map((img) => (
+                        <a key={img.id} href={img.url} target="_blank" rel="noreferrer" className="relative w-20 h-14 rounded-lg overflow-hidden border border-black/10 dark:border-white/10 flex-shrink-0 bg-black">
+                          <img src={img.url} alt="Evidence" className="w-full h-full object-cover" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {ncr.consultantReports && ncr.consultantReports.length > 0 && (
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-black/40 dark:text-white/40 uppercase">Consultant Reports:</span>
+                    <div className="flex flex-col gap-1">
+                      {ncr.consultantReports.map((r) => (
+                        <a key={r.id} href={r.url} target="_blank" rel="noreferrer" className="text-xs font-bold text-orange-600 dark:text-orange-400 hover:underline flex items-center gap-1.5 truncate">
+                          <FileText size={13} className="shrink-0" /> {r.name || 'Report'}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between text-xs pt-2 border-t border-black/5 dark:border-white/5">
+                  <div className="flex items-center gap-2 text-black/70 dark:text-white/70">
+                    <span className="w-6 h-6 rounded-full bg-orange-500/20 text-orange-600 dark:text-orange-400 font-bold flex items-center justify-center text-[10px]">
+                      {ncr.assignedTo?.[0] || 'E'}
+                    </span>
+                    <span className="font-bold text-black dark:text-white">{ncr.assignedTo}</span>
+                  </div>
+
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                    ncr.status === 'Closed' || ncr.status === 'Resolved'
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                      : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                  }`}>
+                    {ncr.status}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 pt-2">
+                  <button
+                    onClick={() => handleUpdateNcrStatus(ncr, ncr.status === 'Open' ? 'Under Review' : 'Resolved')}
+                    className="py-2 px-2 text-[11px] font-bold rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-black dark:text-white border border-black/10 dark:border-white/10 transition-all cursor-pointer text-center min-h-[40px]"
+                  >
+                    Update Status
+                  </button>
+
+                  <button
+                    onClick={() => pickConsultantReport(ncr)}
+                    className="py-2 px-2 text-[11px] font-bold rounded-xl bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-black dark:text-white border border-black/10 dark:border-white/10 transition-all cursor-pointer text-center min-h-[40px]"
+                  >
+                    + Consultant Report
+                  </button>
+
+                  <button
+                    onClick={() => handleCloseNcr(ncr)}
+                    className="py-2 px-2 text-[11px] font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition-all cursor-pointer text-center min-h-[40px]"
+                  >
+                    Close NCR ✓
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -1184,15 +1071,22 @@ function CertificatesTab({ certificates, onNew, onPreview }) {
           <span className="whitespace-nowrap">Scan ID / QR</span>
         </button>
 
-      {previewingCert && (
-        <PdfPreviewShareModal
-          isOpen={!!previewingCert}
-          cert={previewingCert}
-          onClose={() => setPreviewingCert(null)}
-          onShareWhatsApp={(cert) => window.open(`https://wa.me/?text=${encodeURIComponent(`${cert.title} — ${cert.cloudinaryUrl}`)}`, '_blank')}
-          onShareEmail={(cert) => window.open(`mailto:?subject=${encodeURIComponent(cert.title)}&body=${encodeURIComponent(cert.cloudinaryUrl)}`, '_blank')}
-        />
-      )}
+        <button
+          onClick={() => setIsSampleModalOpen(true)}
+          className="flex-1 min-h-[48px] px-4 py-3 bg-orange-600 text-white font-extrabold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer active:scale-95 transition-all"
+        >
+          <Plus size={18} />
+          <span className="whitespace-nowrap">Log Sample</span>
+        </button>
+
+        <button
+          onClick={() => setIsNcrModalOpen(true)}
+          aria-label="Issue NCR"
+          className="min-h-[48px] px-4 py-3 bg-transparent text-red-600 dark:text-red-400 border border-red-500/30 font-extrabold text-xs rounded-xl flex items-center justify-center cursor-pointer active:scale-95 transition-all"
+        >
+          <ShieldAlert size={18} />
+        </button>
+      </div>
 
       {/* Modals */}
       <NewSampleModal
