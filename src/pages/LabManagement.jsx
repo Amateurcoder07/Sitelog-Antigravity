@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { useToast } from '../context/ToastContext';
-import * as labService from '../services/labService';
+import * as labService from '../services/LabService';
 import Button from '../components/Button';
 import NewSampleModal from '../components/lab/NewSampleModal';
 import RecordResultModal from '../components/lab/RecordResultModal';
