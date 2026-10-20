@@ -10,7 +10,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import NotFound from './pages/NotFound';
 import PublicRoute from './components/PublicRoute';
 import ProtectedRoute from './components/ProtectedRoute';
-import DashboardLayout from './components/layout/DashboardLayout';
+import DashboardLayout from './components/layout/Dashboardlayout';
 import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
 import AppLayout from './components/layout/AppLayout';
