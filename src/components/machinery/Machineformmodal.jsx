@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Truck } from 'lucide-react';
-import ModalShell, { ModalActions, fieldCls, labelCls } from './ModalShell';
+import ModalShell, { ModalActions, fieldCls, labelCls } from './Modalshell';
 
 export const CATEGORIES = [
   'Cranes & Lifting',

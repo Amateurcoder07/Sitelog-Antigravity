@@ -1,6 +1,6 @@
 ﻿import React, { useState } from 'react';
 import { Clock, ShieldCheck } from 'lucide-react';
-import ModalShell, { ModalActions, fieldCls, labelCls } from './ModalShell';
+import ModalShell, { ModalActions, fieldCls, labelCls } from './Modalshell';
 
 export default function LogHoursModal({ machine, onClose, onSubmit }) {
   const [closingHmr, setClosingHmr] = useState(String(machine.hmrCurrent));

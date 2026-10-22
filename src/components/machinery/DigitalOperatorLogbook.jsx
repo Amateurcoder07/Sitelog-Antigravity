@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { Tablet, Plus, Trash2, UserPlus, Lock } from 'lucide-react';
-import { fieldCls, labelCls } from './ModalShell';
+import { fieldCls, labelCls } from './Modalshell';
 
 const SHIFTS = {
   Day: { label: 'Day Shift (08:00 - 20:00)', start: '08:00' },

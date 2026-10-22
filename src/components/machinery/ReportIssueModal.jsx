@@ -1,6 +1,6 @@
 ﻿import React, { useState } from 'react';
 import { AlertTriangle, ShieldAlert } from 'lucide-react';
-import ModalShell, { ModalActions, fieldCls, labelCls } from './ModalShell';
+import ModalShell, { ModalActions, fieldCls, labelCls } from './Modalshell';
 
 const ISSUE_TYPES = [
   'Hydraulic Hose / Seal Leakage',
